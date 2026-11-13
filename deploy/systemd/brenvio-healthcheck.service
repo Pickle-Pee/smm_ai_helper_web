@@ -1,0 +1,9 @@
+[Unit]
+Description=Brenvio web health check
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/brenvio-web/bin/healthcheck.sh
+Nice=10

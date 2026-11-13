@@ -2,7 +2,7 @@
 .workspace {
   display: grid;
   grid-template-columns: 288px minmax(0, 1fr) 328px;
-  height: calc(100dvh - var(--topbar-height));
+  height: calc(100dvh - var(--chrome-height));
   min-height: 520px;
 }
 
@@ -711,7 +711,7 @@ dialog .threadsHead {
 
 @media (max-width: 767px) {
   .workspace {
-    height: calc(100dvh - var(--topbar-height) - var(--tabbar-height) - env(safe-area-inset-bottom));
+    height: calc(100dvh - var(--chrome-height) - var(--tabbar-height) - env(safe-area-inset-bottom));
     min-height: 420px;
   }
 

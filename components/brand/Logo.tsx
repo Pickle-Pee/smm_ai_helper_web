@@ -2,7 +2,7 @@ import { cx } from "@/lib/cx";
 import styles from "./Logo.module.css";
 
 /**
- * SMM AI Helper mark: navy tile, teal growth line (marketing results) and a violet spark (AI).
+ * Brenvio mark: navy tile, teal growth line (marketing results) and a violet spark (AI).
  */
 export function LogoMark({ size = 32, onDark = false, className }: { size?: number; onDark?: boolean; className?: string }) {
   return (
@@ -34,7 +34,7 @@ export function Logo({ onDark = false, compact = false, className }: { onDark?: 
       <LogoMark onDark={onDark} />
       {!compact && (
         <span className={styles.wordmark}>
-          SMM <span className={styles.ai}>AI</span> Helper
+          Bren<span className={styles.ai}>vio</span>
         </span>
       )}
     </span>

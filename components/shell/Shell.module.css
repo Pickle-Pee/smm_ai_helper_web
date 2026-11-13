@@ -271,10 +271,63 @@
 }
 
 /* ================= Topbar ================= */
-.topbar {
+.chrome {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
+}
+
+.previewBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--banner-height);
+  padding: 0 var(--page-gutter);
+  background: var(--navy-900);
+  color: var(--navy-100);
+  font-size: var(--text-xs);
+}
+
+.previewBanner svg {
+  flex-shrink: 0;
+  color: var(--violet-300);
+}
+
+.previewText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewText strong {
+  color: #fff;
+  font-weight: var(--weight-semibold);
+}
+
+.previewShort {
+  display: none;
+}
+
+.previewLink {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--teal-200);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: var(--radius-xs);
+}
+
+.previewLink:hover {
+  color: #fff;
+}
+
+.previewLink:focus-visible {
+  outline-color: var(--color-focus-on-dark);
+}
+
+.topbar {
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -425,8 +478,12 @@
     gap: var(--space-2);
   }
 
-  .topbarEnd .demoBadge {
+  .previewLong {
     display: none;
+  }
+
+  .previewShort {
+    display: inline;
   }
 
   .main {

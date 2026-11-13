@@ -1,0 +1,37 @@
+# Brenvio edge. Domain and upstream port come from /opt/brenvio-web/.env:
+#   BRENVIO_DOMAIN=app.example.com   BRENVIO_PORT=3100
+# Changing the domain = edit .env + `docker compose restart` in edge/ (certificate is issued automatically).
+{
+	# Admin API only on the host loopback (used for graceful `caddy reload`), never public.
+	admin localhost:2019
+	servers {
+		# HTTP/1.1 and HTTP/2 only: no UDP/443 listener (HTTP/3) on the shared host.
+		protocols h1 h2
+	}
+}
+
+{$BRENVIO_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# Preview deployment: keep out of search engines (the app sends the same header).
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# Optional basic auth for a closed preview — see docs/operations.md.
+	# basic_auth {
+	# 	{$BRENVIO_BASIC_AUTH_USER} {$BRENVIO_BASIC_AUTH_HASH}
+	# }
+
+	reverse_proxy 127.0.0.1:{$BRENVIO_PORT:3100} {
+		health_uri /api/health
+		health_interval 30s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

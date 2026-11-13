@@ -1,5 +1,5 @@
 /*
- * SMM AI Helper — design tokens v1.
+ * Brenvio — design tokens v1.
  * Primitive scales first, semantic aliases second. Components use semantic tokens only.
  * See docs/design-system.md for rationale and contrast notes.
  */
@@ -187,6 +187,9 @@
   --sidebar-width: 256px;
   --sidebar-width-compact: 76px;
   --topbar-height: 60px;
+  --banner-height: 32px;
+  /* Sticky chrome = preview banner + topbar. */
+  --chrome-height: calc(var(--topbar-height) + var(--banner-height));
   --tabbar-height: 64px;
   --content-max: 1280px;
   --page-gutter: var(--space-8);

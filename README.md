@@ -1,6 +1,8 @@
-# SMM AI Helper — Web
+# Brenvio — Web
 
-Independent **Next.js + TypeScript** SaaS frontend for [SMM AI Helper](https://github.com/Pickle-Pee/smm_ai_helper).
+**Brenvio — AI Marketing Copilot.** Independent **Next.js + TypeScript** SaaS frontend (working brand name; formerly SMM AI Helper). Backend: [smm_ai_helper](https://github.com/Pickle-Pee/smm_ai_helper).
+
+Public preview: https://app.24rubridge.ru (temporary domain, mock-only, `noindex`).
 
 ## Local development
 
@@ -18,8 +20,18 @@ Checks:
 ```bash
 npm run lint   # TypeScript type-check
 npm test       # Vitest: reducers, selectors, formatting, UI primitives
-npm run build
+npm run build  # standalone output (.next/standalone)
 ```
+
+Production image and smoke test:
+
+```bash
+docker build --build-arg SITE_URL=https://app.24rubridge.ru --build-arg APP_VERSION=$(git rev-parse --short=12 HEAD) -t brenvio-web:local .
+docker run --rm -p 127.0.0.1:3100:3000 --read-only --tmpfs /tmp --tmpfs /app/.next/cache:uid=1001,gid=1001 brenvio-web:local
+bash scripts/smoke.sh http://127.0.0.1:3100
+```
+
+Build-time settings are listed in `.env.example`; none are secrets. Deployment, updates, rollback and monitoring: **[docs/operations.md](docs/operations.md)**.
 
 ## Current features (mock-only)
 
@@ -46,6 +58,9 @@ lib/api/             typed API contracts, mock adapter, ApiProvider (single inte
 lib/mock/            fictional demo dataset
 styles/tokens.css    design tokens
 docs/design-system.md  design concept, palette, typography, components
+docs/operations.md     deployment, update, rollback, monitoring runbook
+deploy/                server compose files, Caddyfile, deploy/rollback/health scripts
+scripts/smoke.sh       smoke test used by CI and after deploys
 ```
 
 ## Integration policy

@@ -279,7 +279,7 @@ function MessageView({ message, threadId }: { message: Message; threadId: ID }) 
     <div className={styles.aiMessage}>
       <div className={styles.aiHeader}>
         <LogoMark size={26} />
-        <span className={styles.aiName}>SMM AI Helper</span>
+        <span className={styles.aiName}>Brenvio AI</span>
         <Badge tone="outline" size="sm" title="Ответ из демонстрационного набора данных">
           Пример ответа
         </Badge>

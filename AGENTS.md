@@ -1,4 +1,6 @@
-# SMM AI Helper Web — Agent Instructions
+# Brenvio Web — Agent Instructions
+
+Brenvio (working name; previously SMM AI Helper) is the commercial frontend brand. Backend repositories, modules, containers, tables, API contracts and env/token names keep their `smm_ai_helper` identifiers unless separately approved.
 
 ## Product and repository boundaries
 - This repository contains only the Next.js + TypeScript SaaS frontend.
@@ -8,7 +10,7 @@
 
 ## Engineering
 - Default to accessible, responsive and reusable UI components, not one-off pixel layouts.
-- Preserve the SMM AI Helper design language: light canvas, navy navigation, turquoise/purple accents.
+- Preserve the Brenvio design language: light canvas, navy navigation, turquoise/purple accents.
 - No secret keys or service tokens in client-side code, environment variables prefixed NEXT_PUBLIC_, or generated bundles.
 - Never send X-Telegram-User-ID from the browser as proof of identity.
 - Keep marketing workspace, projects, documents, and account state separated by features.
@@ -21,3 +23,8 @@
 - Verify `npm run lint` and `npm run build`.
 - State whether a change is mock-only or connected to production APIs.
 - Link related tracking tasks in the backend product epic #158.
+
+## Deployment
+- Follow docs/operations.md. The frontend runs as its own compose projects (`brenvio-web`, `brenvio-edge`) under /opt/brenvio-web.
+- Never stop, reconfigure or prune other projects, containers, networks or volumes on the shared server.
+- This repository is public: never commit server internals, credentials or other projects' details.
