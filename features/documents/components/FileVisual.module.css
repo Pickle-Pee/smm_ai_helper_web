@@ -1,0 +1,213 @@
+.icon {
+  --kind: #5f6c82;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--kind) 11%, white);
+  color: var(--kind);
+}
+
+.sm {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+}
+
+.lg {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+}
+
+.icon_sheet,
+.thumb_sheet {
+  --kind: #1d7f53;
+}
+.icon_doc,
+.thumb_doc {
+  --kind: #2a5fc4;
+}
+.icon_pdf,
+.thumb_pdf {
+  --kind: #c0313f;
+}
+.icon_slides,
+.thumb_slides {
+  --kind: #b1660c;
+}
+.icon_card,
+.thumb_card {
+  --kind: #6a5cd6;
+}
+.icon_file,
+.thumb_file {
+  --kind: #5f6c82;
+}
+
+/* ---------- Thumb ---------- */
+.thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 132px;
+  padding: var(--space-4) var(--space-5) 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--kind) 7%, var(--gray-25));
+  border-bottom: 1px solid var(--color-border);
+}
+
+.thumbLarge {
+  height: 240px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.thumbLarge > * {
+  transform: scale(1.35);
+  transform-origin: center bottom;
+}
+
+.sheet {
+  align-self: end;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  width: 78%;
+  max-width: 190px;
+  height: 104px;
+  padding: 1px;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in srgb, var(--kind) 22%, white);
+  box-shadow: var(--shadow-sm);
+}
+
+.sheet span {
+  background: #fff;
+}
+
+.sheet .sheetHead {
+  background: color-mix(in srgb, var(--kind) 18%, white);
+}
+
+.page {
+  position: relative;
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 64%;
+  max-width: 150px;
+  height: 108px;
+  padding: 14px 14px 0;
+  border-radius: 6px 6px 0 0;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.page span {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--gray-200);
+}
+
+.page .pageTitle {
+  width: 60%;
+  height: 8px;
+  margin-bottom: 3px;
+  background: color-mix(in srgb, var(--kind) 55%, white);
+}
+
+.page .short {
+  width: 72%;
+}
+
+.pdfTag {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--kind);
+  color: #fff;
+  font: 700 9px/1.4 var(--font-sans);
+  font-style: normal;
+}
+
+.slide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 82%;
+  max-width: 200px;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.slideTitle {
+  width: 46%;
+  height: 7px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--kind) 60%, white);
+}
+
+.slideBar {
+  width: 70%;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--gray-200);
+}
+
+.slideChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 1;
+  margin-top: 2px;
+}
+
+.slideChart i {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--kind) 35%, white);
+}
+
+.cards {
+  position: relative;
+  width: 110px;
+  height: 100px;
+  margin-bottom: 10px;
+}
+
+.cards span {
+  position: absolute;
+  width: 78px;
+  height: 92px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.cards span:first-child {
+  left: 0;
+  top: 8px;
+  transform: rotate(-7deg);
+  background: color-mix(in srgb, var(--kind) 25%, white);
+}
+
+.cards span:last-child {
+  right: 0;
+  top: 0;
+  transform: rotate(5deg);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--kind) 70%, white), var(--kind));
+}
+
+.archive {
+  margin-bottom: 14px;
+  color: color-mix(in srgb, var(--kind) 70%, white);
+}
