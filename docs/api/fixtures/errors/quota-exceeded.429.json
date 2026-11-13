@@ -1,0 +1,13 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "quota_exceeded",
+  "request_id": "req_fixture_0019",
+  "retry_after_seconds": 41400,
+  "owned_site": null,
+  "quota": {
+    "scope": "user",
+    "window": "day",
+    "resets_at": "2026-11-22T00:00:00Z"
+  }
+}

@@ -75,6 +75,15 @@
       "notes": "Тело идентично ответу на несуществующий id."
     },
     {
+      "file": "errors/quota-exceeded.429.json",
+      "type": "error",
+      "title": "Суточная квота исчерпана; Retry-After больше часа",
+      "operation_id": "submitMessage",
+      "status": 429,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Автоповтора нет; UI показывает quota.resets_at. Ничего не сохранено и не принято ядром."
+    },
+    {
       "file": "errors/rate-limited.429.json",
       "type": "error",
       "title": "Лимит частоты; проверяется до обращения к ядру",
@@ -161,8 +170,8 @@
     {
       "file": "golden/snapshot-corrupted-hash.json",
       "type": "golden",
-      "title": "Повреждённый snapshot: payload изменён после вычисления хэша",
-      "notes": "Форма конверта валидна, но sha256(canonical(payload)) != payload_sha256. Декодер не запускается.",
+      "title": "Повреждённая сохранённая строка: payload изменён после вычисления хэша",
+      "notes": "Файл — строка result_snapshots (не ответ API). sha256(canonical(stored payload)) != payload_sha256. Декодер и upcasters не запускаются.",
       "expect": {
         "integrity": "failed",
         "error_code": "result_corrupted",
@@ -170,14 +179,36 @@
       }
     },
     {
+      "file": "golden/snapshot-two-viewers.json",
+      "type": "golden",
+      "title": "Два участника одной организации открывают один сохранённый результат",
+      "notes": "Одинаковые stored, provenance и presentation; различается только вычисляемый author.is_self.",
+      "expect": {
+        "identical_except": [
+          "author.is_self"
+        ]
+      }
+    },
+    {
       "file": "golden/snapshot-unknown-schema-version.json",
       "type": "golden",
-      "title": "Целый snapshot с неизвестной schema_version",
-      "notes": "Хэш совпадает, но для (copilot_api.v9, RUN) нет замороженного декодера. Это не повреждение.",
+      "title": "Целая сохранённая строка с неизвестной schema_version",
+      "notes": "Файл — строка result_snapshots. Хэш совпадает, но для (copilot_api.v9, RUN) нет замороженного декодера. Это не повреждение.",
       "expect": {
         "integrity": "ok",
         "error_code": "result_format_unsupported",
         "result_status": "format_unsupported"
+      }
+    },
+    {
+      "file": "golden/snapshot-upcast-v1-to-v2.json",
+      "type": "golden",
+      "title": "Преобразование сохранённого результата v1 → v2 (гипотетическая v2)",
+      "notes": "Хэш проверяется по неизменной строке v1; представление v2 имеет другой хэш, и это не result_corrupted. copilot_api.v2 существует только в этом тесте.",
+      "expect": {
+        "integrity": "ok",
+        "result_status": "available",
+        "stored_row_unchanged": true
       }
     },
     {
@@ -296,7 +327,7 @@
       "operation_id": "submitMessage",
       "status": 200,
       "schema": "#/components/schemas/MessageResult",
-      "notes": "Ядро приняло запрос, но исход вызова провайдера неизвестен. Автоповтора нет; новый запрос — только с новым ключом и по явному действию пользователя."
+      "notes": "Receipt ядра сам записал ambiguous (finish без ответа), прочитано через read-only peek. Автоповтора нет; новый запрос — только с новым ключом и по явному действию пользователя."
     },
     {
       "file": "responses/message-clarification-completed.200.json",
@@ -369,6 +400,15 @@
       "status": 200,
       "schema": "#/components/schemas/MessageResult",
       "notes": "failure — существующий PublicFailure с точными строками ядра; сырой run.error наружу не выходит."
+    },
+    {
+      "file": "responses/message-running-overdue.200.json",
+      "type": "response",
+      "title": "Ядро всё ещё сообщает running дольше ожидаемого окна",
+      "operation_id": "getRequestByKey",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Состояние остаётся running, а не ambiguous: время не является доказательством. UI показывает «результат пока не определён», модель не вызывается, ключ не создаётся."
     },
     {
       "file": "responses/message-strategy-completed.200.json",
@@ -453,11 +493,20 @@
     {
       "file": "responses/result-snapshot-run.200.json",
       "type": "response",
-      "title": "Сохранённый snapshot (конверт + provenance)",
+      "title": "Сохранённый snapshot глазами автора (author.is_self = true)",
       "operation_id": "getMessageResult",
       "status": 200,
       "schema": "#/components/schemas/ResultSnapshot",
-      "notes": "Эталон для golden-теста декодера copilot_api.v1/RUN: payload_sha256 = sha256(canonical JSON payload)."
+      "notes": "Эталон декодера copilot_api.v1/RUN без upcasters: stored.payload_sha256 = sha256(canonical(presentation.payload))."
+    },
+    {
+      "file": "responses/result-snapshot-run.other-member.200.json",
+      "type": "response",
+      "title": "Тот же snapshot глазами другого участника организации (author.is_self = false)",
+      "operation_id": "getMessageResult",
+      "status": 200,
+      "schema": "#/components/schemas/ResultSnapshot",
+      "notes": "Командные организации — B10; правило проекции действует с первого дня."
     },
     {
       "file": "responses/telegram-history.200.json",

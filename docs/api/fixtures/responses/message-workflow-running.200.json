@@ -5,6 +5,7 @@
   "state": "running",
   "next_action": "poll",
   "poll_after_ms": 5000,
+  "running_overdue": false,
   "user_message": {
     "id": "74ca17a0-458c-5ed6-bc8f-cc91b405db85",
     "thread_id": "55a62753-5145-5087-b4b9-a620d5442cd0",

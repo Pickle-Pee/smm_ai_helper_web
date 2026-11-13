@@ -5,6 +5,7 @@
   "state": "completed",
   "next_action": "none",
   "poll_after_ms": null,
+  "running_overdue": false,
   "user_message": {
     "id": "5dcb2bc7-6269-53de-b124-b1ba06f69461",
     "thread_id": "29136bc6-3e3b-5b4f-af04-53630c15afaf",
@@ -40,49 +41,53 @@
       "id": "f1f1d3a3-c278-512e-8ecb-cee159ce4b00",
       "message_id": "f101ea12-eea1-5a99-8678-af91acb8d1df",
       "envelope_version": 1,
-      "schema_version": "copilot_api.v1",
       "result_kind": "DIRECT_RESULT",
-      "writer_version": "0.0.0-fixture",
-      "payload_sha256": "f6e124be8a2353fa5da8450e6b7d9f5b25556e453a532697bf368ff3e0758942",
+      "stored": {
+        "schema_version": "copilot_api.v1",
+        "payload_sha256": "f6e124be8a2353fa5da8450e6b7d9f5b25556e453a532697bf368ff3e0758942",
+        "writer_version": "0.0.0-fixture"
+      },
       "provenance": {
         "source_kind": "receipt",
         "run_id": null,
         "request_key": "w-0193a4f2-0002-7a02-8c02-000000000002",
         "revision": 1,
-        "created_by": {
-          "id": 42,
-          "display_name": "Мария",
-          "is_self": true
-        },
+        "author_user_id": 42,
         "source_completed_at": "2026-11-20T10:30:02Z",
         "materialized_at": "2026-11-20T10:30:02Z"
       },
-      "decoded_with": {
-        "decoder": "copilot_api.v1/DIRECT_RESULT",
-        "upcasters": []
+      "author": {
+        "id": 42,
+        "display_name": "Мария",
+        "is_self": true
       },
-      "payload": {
+      "presentation": {
         "schema_version": "copilot_api.v1",
-        "owned_site": null,
-        "kind": "DIRECT_RESULT",
-        "calculation": {
-          "calculation_type": "leads",
-          "formula": "budget/cpl",
-          "inputs": {
-            "budget": "10000",
-            "cpc": null,
-            "cpl": "500",
-            "traffic": null,
-            "conversion_rate_percent": null,
-            "required_leads": null
-          },
-          "outputs": {
-            "clicks": null,
-            "leads": "20",
-            "required_traffic": null,
-            "required_budget": null
-          },
-          "assumptions": []
+        "decoder": "copilot_api.v1/DIRECT_RESULT",
+        "upcasters": [],
+        "payload": {
+          "schema_version": "copilot_api.v1",
+          "owned_site": null,
+          "kind": "DIRECT_RESULT",
+          "calculation": {
+            "calculation_type": "leads",
+            "formula": "budget/cpl",
+            "inputs": {
+              "budget": "10000",
+              "cpc": null,
+              "cpl": "500",
+              "traffic": null,
+              "conversion_rate_percent": null,
+              "required_leads": null
+            },
+            "outputs": {
+              "clicks": null,
+              "leads": "20",
+              "required_traffic": null,
+              "required_budget": null
+            },
+            "assumptions": []
+          }
         }
       }
     }

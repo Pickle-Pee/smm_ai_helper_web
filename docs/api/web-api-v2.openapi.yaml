@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Brenvio Web API v2 (PROPOSED contract draft)
-  version: 2.0.0-draft.1
+  version: 2.0.0-draft.2
   summary: Contract-first draft of the authenticated browser API for Brenvio. Nothing here is implemented yet.
   description: |
     **Status: PROPOSED.** This document is the C0 deliverable of
@@ -25,7 +25,13 @@ info:
       organization-member or Telegram field. `BOT_BACKEND_TOKEN` and `X-Telegram-User-ID` are never accepted
       on `/v2` and never sent by a browser.
     * The API promises safe replay and recovery. It does NOT promise exactly-once execution of an external
-      model provider.
+      model provider. `ambiguous` is reported only when the core recorded it, never inferred from time.
+    * Every `/v2` response - success or error, including `401`/`404` - carries
+      `Cache-Control: private, no-store` (`components/headers/CacheControlPrivate`). No shared cache, CDN
+      or reverse proxy may store any `/v2` response.
+    * Result snapshots separate the IMMUTABLE stored record (`stored`, `provenance`; hashed and persisted
+      once) from the COMPUTED `presentation` (frozen decoder + upcasters) and the per-viewer `author`
+      projection. Viewer-relative fields (`UserRef.is_self`) are never persisted or hashed.
   contact:
     name: Brenvio web contract (issue tracker)
     url: https://github.com/Pickle-Pee/smm_ai_helper_web/issues/7
@@ -64,7 +70,8 @@ x-error-catalog:
   # code -> HTTP status, retry policy and meaning. `retry` values:
   #   never            - do not retry; fix the request or the user's state
   #   same_request     - repeat the identical request (same key, same payload); safe
-  #   after_delay      - repeat the identical request after Retry-After / backoff
+  #   after_delay      - repeat the identical request after Retry-After / backoff (may be automatic, bounded)
+  #   after_reset      - never automatic; offer the user to try again after the quota reset (Retry-After)
   #   reauthenticate   - obtain a new session, then repeat
   #   explicit_new_key - only on an explicit user action, with a NEW request_key (may generate again)
   unauthenticated:
@@ -166,11 +173,11 @@ x-error-catalog:
   rate_limited:
     status: 429
     retry: after_delay
-    meaning: 'Short-window rate limit. Checked before any core admission.'
+    meaning: 'Short-window rate limit (seconds to minutes). Checked before any core admission: nothing was stored or admitted, so the identical request with the same key may be sent once Retry-After elapses.'
   quota_exceeded:
     status: 429
-    retry: after_delay
-    meaning: 'Daily usage cap for the user or organization. Checked before any core admission.'
+    retry: after_reset
+    meaning: 'Daily usage cap for the user or organization (`quota` in the body). Checked before any core admission: nothing was stored or admitted. Never retried automatically; Retry-After = seconds until quota.resets_at (may exceed 3600).'
   temporarily_unavailable:
     status: 503
     retry: after_delay
@@ -178,11 +185,11 @@ x-error-catalog:
   result_corrupted:
     status: 503
     retry: never
-    meaning: 'Snapshot integrity check failed (payload_sha256 mismatch). Real data damage; quarantined, never regenerated silently.'
+    meaning: 'Integrity check of the STORED payload failed (sha256(canonical(stored payload)) != stored.payload_sha256), evaluated before any decoder or upcaster. Real data damage; quarantined, never regenerated silently. Never caused by an upcast.'
   result_unreadable:
     status: 503
     retry: after_delay
-    meaning: 'Snapshot is intact (hash matches) but its decoder failed. A server defect; data is untouched.'
+    meaning: 'The stored payload is intact (hash matches) but its frozen decoder or an upcaster failed. A server defect; data is untouched.'
 
 paths:
   /v2/auth/telegram/exchange:
@@ -222,7 +229,7 @@ paths:
           description: Session created.
           headers:
             Set-Cookie: {$ref: '#/components/headers/SessionSetCookie'}
-            Cache-Control: {$ref: '#/components/headers/NoStore'}
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/AuthSession'}
@@ -252,7 +259,7 @@ paths:
         '200':
           description: Current CSRF token.
           headers:
-            Cache-Control: {$ref: '#/components/headers/NoStore'}
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CsrfToken'}
@@ -283,6 +290,7 @@ paths:
         '204':
           description: Session revoked (or there was none).
           headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
             Set-Cookie: {$ref: '#/components/headers/SessionClearCookie'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '503': {$ref: '#/components/responses/Unavailable'}
@@ -301,7 +309,7 @@ paths:
         '200':
           description: The authenticated principal.
           headers:
-            Cache-Control: {$ref: '#/components/headers/NoStore'}
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Me'}
@@ -351,6 +359,8 @@ paths:
       responses:
         '200':
           description: One page of the caller's legacy history.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/LegacyHistoryPage'}
@@ -381,6 +391,8 @@ paths:
       responses:
         '200':
           description: Item metadata plus an untyped, bounded result (shape to be defined in B11).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/LegacyHistoryItemDetail'}
@@ -405,6 +417,8 @@ paths:
       responses:
         '200':
           description: Active memberships.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/OrganizationList'}
@@ -435,6 +449,8 @@ paths:
       responses:
         '200':
           description: One page of projects, each with its brand.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ProjectList'}
@@ -473,11 +489,15 @@ paths:
       responses:
         '200':
           description: Idempotent replay; the project created earlier under this Idempotency-Key.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Project'}
         '201':
           description: Project created.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Project'}
@@ -506,6 +526,8 @@ paths:
       responses:
         '200':
           description: The project.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Project'}
@@ -514,6 +536,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '404':
           description: Unknown project or a project of another organization (indistinguishable).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -544,6 +568,8 @@ paths:
       responses:
         '200':
           description: Updated project with the new `version`.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Project'}
@@ -552,6 +578,8 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409':
           description: Version conflict.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -579,6 +607,8 @@ paths:
       responses:
         '200':
           description: The project brand.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ProjectBrand'}
@@ -617,6 +647,8 @@ paths:
       responses:
         '200':
           description: Updated brand with the new `version`.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ProjectBrand'}
@@ -674,6 +706,8 @@ paths:
       responses:
         '200':
           description: Brand replaced by a copy of the legacy profile; `imported_from` updated.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ProjectBrand'}
@@ -708,6 +742,8 @@ paths:
       responses:
         '200':
           description: One page of threads.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ThreadList'}
@@ -742,11 +778,15 @@ paths:
       responses:
         '200':
           description: Idempotent replay; the thread created earlier under this Idempotency-Key.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Thread'}
         '201':
           description: Thread created.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Thread'}
@@ -778,12 +818,16 @@ paths:
       responses:
         '200':
           description: The thread.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Thread'}
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '404':
           description: Unknown or removed thread, or a thread of another organization (indistinguishable).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -816,6 +860,8 @@ paths:
       responses:
         '204':
           description: Removed from the project (idempotent for the author/owner until purge).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -859,6 +905,8 @@ paths:
       responses:
         '200':
           description: One page of messages with embedded durable results.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ThreadMessagesPage'}
@@ -890,11 +938,14 @@ paths:
 
         **Status codes.**
         * `200` - the request reached a durable state synchronously: `completed`, `needs_input`,
-          `unsupported`, `ambiguous` (or a replay of any terminal state).
+          `unsupported`, or `ambiguous` when the core itself recorded an unknown provider outcome
+          (`finish` without a response); or a replay of any terminal state.
         * `202` - the request is `running` (a workflow was started, or a replay found it still running).
           Poll `getMessage`.
         * `503 temporarily_unavailable` - the outcome is NOT known yet (in flight elsewhere, dependency down,
-          crash window). The client MUST recover with `getRequestByKey` and MUST NOT mint a new key.
+          crash window). The client MUST recover with `getRequestByKey` and MUST NOT mint a new key, neither
+          automatically nor on a plain "retry" button; a new key exists only behind the explicit, warned
+          "start a new request" action.
         * Rate limits and quotas (`429`) are evaluated before the core is asked to admit anything.
 
         **Long requests.** DIRECT and single-module results are computed inside this HTTP request by the
@@ -938,6 +989,8 @@ paths:
       responses:
         '200':
           description: Durable state reached synchronously, or replay of a terminal state.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageResult'}
@@ -950,6 +1003,8 @@ paths:
                 ambiguous: {externalValue: fixtures/responses/message-ambiguous.200.json}
         '202':
           description: Admitted and running. Poll `getMessage` using `poll_after_ms`.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageResult'}
@@ -958,6 +1013,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '403':
           description: CSRF failure, insufficient role or disabled feature.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -967,6 +1024,8 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409':
           description: Idempotency, revision, thread-slot or confirmation conflict.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -995,23 +1054,50 @@ paths:
           not readable). The client may submit the identical request again with the same key.
         * `200` - follow `next_action`. `resubmit_same_key` means the message was stored but the core never
           admitted it; resubmitting the identical payload is safe because the core claim admits a key once.
+        * `503 temporarily_unavailable` - the status could not be read reliably. Nothing changed; re-read
+          after `Retry-After` with the same key.
 
-        Read-only towards the core (`ExecutionStore.get`, `GraphRunReader.get_for_owner`); never generates.
-        Another member's key is `404`, exactly like an unknown key.
+        **Receipt status check (read-only).** For a revision without a snapshot the server asks the core
+        through the proposed `ExecutionStore.peek(owner = principal.user_id, request_key)` (README §10.3):
+        a single SELECT that returns the receipt status (`running`, `completed`, `needs_input`, `ambiguous`)
+        or "absent", with the same owner, workflow-type and 30-day retention filters as the existing `get`.
+        It takes no lock, deletes nothing, never claims, never validates or replays a payload and never calls
+        a model. Mapping:
+
+        | core says | `state` | effect |
+        | --- | --- | --- |
+        | `completed` / `needs_input` | `completed` / `needs_input` | replay through the existing `ExecutionStore.get`, idempotent snapshot insert |
+        | `running` | `running` (+ `running_overdue` when past the window) | none |
+        | `ambiguous` | `ambiguous` | web state set to `ambiguous` (the only path to it) |
+        | absent, web state `pending` | `pending` + `resubmit_same_key` | none |
+        | absent, receipt past retention | `expired` (`receipt_expired`) | none |
+        | `peek` fails / not deployed | - | `503 temporarily_unavailable`, web state unchanged |
+
+        `ambiguous` is NEVER derived from elapsed time, a hung request or a missing heartbeat. If the
+        snapshot insert fails, its transaction is rolled back, nothing else changed, and the response is
+        `503 temporarily_unavailable`; the next read retries the same idempotent insert from the same
+        receipt. Rolling back the `peek` deployment degrades undetermined reads to `503`, never to
+        `ambiguous` and never to a new model call.
+
+        Never generates; never mints a key. Another member's key is `404`, exactly like an unknown key.
       x-status: proposed
       x-stage: B5
       x-availability: internal-beta
       x-min-role: author
-      x-delegates-to: ExecutionStore.get, GraphRunReader.get_for_owner (read-only)
+      x-delegates-to: ExecutionStore.peek (proposed, read-only), ExecutionStore.get, GraphRunReader.get_for_owner (read-only)
       x-error-codes: {'401': [unauthenticated], '404': [not_found], '422': [invalid_request], '503': [temporarily_unavailable]}
       responses:
         '200':
           description: Current state of the latest revision of this request.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageResult'}
               examples:
                 storedButNeverAdmitted: {externalValue: fixtures/responses/message-pending-resubmit.200.json}
+                ambiguousRecordedByCore: {externalValue: fixtures/responses/message-ambiguous.200.json}
+                runningOverdue: {externalValue: fixtures/responses/message-running-overdue.200.json}
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '404': {$ref: '#/components/responses/NotFound'}
         '422': {$ref: '#/components/responses/InvalidRequest'}
@@ -1032,7 +1118,9 @@ paths:
         Read path, all read-only towards the core:
         1. Project authorization from web tables (membership, role `viewer`); remember `membership_version`.
         2. If a snapshot exists, serve it. Otherwise:
-           * author only - `ExecutionStore.get(owner = principal, key)` to replay a finished synchronous result;
+           * author only - `ExecutionStore.peek(owner = principal, key)` (read-only status, see
+             `getRequestByKey`) and, for `completed` / `needs_input`, `ExecutionStore.get` to replay the
+             finished synchronous result. `ambiguous` only when the core receipt says so; never by age;
            * any member - delegated read `GraphRunReader.get_for_owner(owner = message.created_by, run_id)`
              for a workflow. The owner comes from the verified project mapping, never from the caller.
         3. Terminal core state is materialized into an immutable snapshot (idempotent insert).
@@ -1052,11 +1140,13 @@ paths:
       x-stage: B5 (state), B6 (materialization)
       x-availability: internal-beta
       x-min-role: viewer
-      x-delegates-to: ExecutionStore.get (author only), GraphRunReader.get_for_owner (delegated, proposed owner-id variant)
+      x-delegates-to: ExecutionStore.peek + ExecutionStore.get (author only, read-only), GraphRunReader.get_for_owner (delegated, proposed owner-id variant)
       x-error-codes: {'401': [unauthenticated], '404': [not_found], '503': [temporarily_unavailable]}
       responses:
         '200':
           description: Current state of the request.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageResult'}
@@ -1069,6 +1159,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '404':
           description: Unknown message, or a message (and therefore AI run) of another tenant (indistinguishable).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -1084,14 +1176,24 @@ paths:
       operationId: getMessageResult
       summary: The durable result snapshot of a request
       description: |
-        Returns the immutable snapshot envelope with provenance. Read path:
+        Returns the snapshot: immutable `stored` metadata and `provenance`, the computed `presentation`, and
+        the per-viewer `author`. Read path:
 
-        1. **Integrity** - recompute `sha256(canonical_json(payload))` and compare with `payload_sha256`.
-           Mismatch is real damage: `503 result_corrupted`, alert, quarantine. Never regenerated silently.
-        2. **Format** - look up the frozen decoder for `(schema_version, result_kind)`. No decoder:
+        1. **Integrity of the STORED payload** - load the row, recompute
+           `sha256(canonical_json(stored payload))` and compare with `stored.payload_sha256`. Mismatch is real
+           damage: `503 result_corrupted`, alert, quarantine. Never regenerated silently. No decoder runs.
+        2. **Format** - look up the frozen decoder for `(stored.schema_version, result_kind)`. No decoder:
            `409 result_format_unsupported`. The data is intact; this is NOT corruption.
-        3. **Decode + upcast** - run the frozen decoder and the upcaster chain to the current presentation.
-           A failure here with a matching hash is a server defect: `503 result_unreadable`; data untouched.
+        3. **Decode + upcast a copy** - run the frozen decoder and the upcaster chain up to the presentation
+           version of this document. A failure here (hash already verified) is a server defect:
+           `503 result_unreadable`; the stored row is untouched and nothing is written back.
+        4. **Viewer projection** - `author` is resolved from `provenance.author_user_id` for the caller.
+
+        Because step 1 runs on the stored payload, a result upcast from an older version (presentation hash
+        != stored hash) is `available`, never `result_corrupted` (golden fixture
+        `golden/snapshot-upcast-v1-to-v2.json`). Two members reading the same snapshot get identical
+        `stored`, `provenance` and `presentation` and differ only in `author.is_self`
+        (`golden/snapshot-two-viewers.json`).
 
         Never calls a model and never reads a core receipt.
       x-status: proposed
@@ -1102,15 +1204,20 @@ paths:
       responses:
         '200':
           description: The snapshot.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ResultSnapshot'}
               examples:
-                strategyRun: {externalValue: fixtures/responses/result-snapshot-run.200.json}
+                strategyRunSeenByAuthor: {externalValue: fixtures/responses/result-snapshot-run.200.json}
+                strategyRunSeenByOtherMember: {externalValue: fixtures/responses/result-snapshot-run.other-member.200.json}
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409':
           description: Not ready yet, or stored in a format this server cannot present.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -1118,6 +1225,8 @@ paths:
                 formatUnsupported: {externalValue: fixtures/errors/result-format-unsupported.409.json}
         '410':
           description: No result exists and none can be obtained under this key.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -1125,6 +1234,8 @@ paths:
                 gone: {externalValue: fixtures/errors/result-gone.410.json}
         '503':
           description: Integrity failure, decoder defect or dependency outage.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -1152,6 +1263,8 @@ paths:
       responses:
         '200':
           description: The saved explanation.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MentorExplanationResult'}
@@ -1181,6 +1294,8 @@ paths:
       responses:
         '200':
           description: The explanation.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MentorExplanationResult'}
@@ -1208,6 +1323,8 @@ paths:
       responses:
         '200':
           description: Up to 50 most recent turns (existing bound).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MentorHistoryResult'}
@@ -1247,6 +1364,8 @@ paths:
       responses:
         '200':
           description: The answer (new or replayed).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MentorAnswerResult'}
@@ -1312,12 +1431,16 @@ paths:
       responses:
         '200':
           description: Reply stored (or replay of a stored reply, or `ambiguous`).
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageResult'}
         '401': {$ref: '#/components/responses/Unauthenticated'}
         '403':
           description: Feature disabled in the internal beta, CSRF failure or insufficient role.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
@@ -1409,12 +1532,20 @@ components:
     SessionClearCookie:
       description: '`__Host-brenvio_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`'
       schema: {type: string}
-    NoStore:
-      description: Always `no-store`.
-      schema: {type: string, const: no-store}
+    CacheControlPrivate:
+      description: |
+        Exactly `private, no-store` on EVERY response of `/v2` (success, redirect-free 2xx/204 and every error),
+        because every `/v2` response is either tenant data or depends on the session. No browser cache, no
+        shared cache (CDN, reverse proxy, service worker) may store it. There are no public `/v2` responses.
+        See README, "Caching and the edge".
+      required: true
+      schema: {type: string, const: 'private, no-store'}
     RetryAfter:
-      description: Seconds to wait before repeating the identical request.
-      schema: {type: integer, minimum: 1, maximum: 3600}
+      description: |
+        Delta-seconds (never an HTTP-date) until the identical request may be repeated. No upper bound: for
+        `quota_exceeded` it is the time until `quota.resets_at` and can exceed a day. Clients never compute
+        it themselves and never retry before it elapses.
+      schema: {type: integer, minimum: 1}
     RequestId:
       description: Correlation id, equal to `ErrorResponse.request_id`. Contains no user data.
       schema: {type: string}
@@ -1423,6 +1554,7 @@ components:
     Unauthenticated:
       description: No valid session, or an invalid one-time login token.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
@@ -1433,6 +1565,7 @@ components:
     Forbidden:
       description: CSRF failure, insufficient role/authorship for a visible resource, or a disabled feature.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
@@ -1443,6 +1576,7 @@ components:
     NotFound:
       description: The resource does not exist or is not visible to the caller. The two cases are indistinguishable.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
@@ -1452,6 +1586,7 @@ components:
     Conflict:
       description: State conflict. See the operation's `x-error-codes` for the possible codes.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
@@ -1460,12 +1595,15 @@ components:
             staleProject: {externalValue: fixtures/errors/stale-project.409.json}
     PayloadTooLarge:
       description: Body exceeds the route limit. When produced by the edge the body may not be JSON.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
     InvalidRequest:
       description: Validation failed. Submitted values are never echoed back.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
@@ -1473,21 +1611,33 @@ components:
           examples:
             invalidRequest: {externalValue: fixtures/errors/invalid-request.422.json}
     RateLimited:
-      description: Rate limit or usage quota. Evaluated before any AI work is admitted.
+      description: |
+        Rate limit or usage quota, evaluated before anything is stored or admitted (no message row, no core
+        claim, no model call). `Retry-After` is always present.
+
+        * `rate_limited` - short window. The client may repeat the IDENTICAL request (same `request_key`)
+          once after `Retry-After`; a second consecutive `429` is shown to the user instead of looping.
+        * `quota_exceeded` - daily cap; `quota.resets_at` says when it resets and `Retry-After` counts down to
+          it (may be many hours). Never retried automatically; the UI shows the reset time. Because nothing
+          was admitted, a later explicit attempt may reuse the same key or start with a new one.
       headers:
-        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ErrorResponse'}
           examples:
             rateLimited: {externalValue: fixtures/errors/rate-limited.429.json}
+            quotaExceeded: {externalValue: fixtures/errors/quota-exceeded.429.json}
     Unavailable:
       description: |
         Outcome not determined or a dependency is unavailable. For `submitMessage` this never means
         "nothing happened": recover by key. Edge-generated 502/504 responses may not be JSON and must be
         treated the same way.
       headers:
+        Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
         Retry-After: {$ref: '#/components/headers/RetryAfter'}
         X-Request-ID: {$ref: '#/components/headers/RequestId'}
       content:
@@ -1587,14 +1737,32 @@ components:
           type: string
           pattern: '^[A-Za-z0-9_-]{8,64}$'
         retry_after_seconds:
-          description: Mirror of the `Retry-After` header when the request may be repeated unchanged.
+          description: Mirror of the `Retry-After` header when the request may be repeated unchanged. No upper bound.
           type: [integer, 'null']
           minimum: 1
-          maximum: 3600
         owned_site:
           oneOf:
             - {$ref: '#/components/schemas/OwnedSiteResult'}
             - {type: 'null'}
+        quota:
+          description: Present only with `quota_exceeded`.
+          oneOf:
+            - {$ref: '#/components/schemas/QuotaInfo'}
+            - {type: 'null'}
+
+    QuotaInfo:
+      x-status: proposed
+      description: |
+        Which usage cap was hit and when it resets. `resets_at` is authoritative (server clock); the numeric
+        caps and the reset boundary (fixed UTC day vs rolling 24 h) are open decision OQ-6, so clients must
+        not assume either and must not display a computed countdown that disagrees with `resets_at`.
+      type: object
+      additionalProperties: false
+      required: [scope, window, resets_at]
+      properties:
+        scope: {type: string, enum: [user, organization]}
+        window: {type: string, enum: [day]}
+        resets_at: {$ref: '#/components/schemas/Timestamp'}
 
     Role:
       x-status: proposed
@@ -1606,14 +1774,21 @@ components:
 
     UserRef:
       x-status: proposed
-      description: Minimal public reference to a user inside a tenant. Never contains a Telegram identifier or e-mail.
+      x-persistence: computed-per-viewer
+      description: |
+        Minimal reference to a user inside a tenant, COMPUTED for the current caller on every response.
+        Never persisted, never hashed, never part of an immutable record: persisted records store only the
+        stable `users.id` (for example `SnapshotProvenance.author_user_id`). `display_name` is the user's
+        CURRENT name and `is_self` is `id == principal.user_id`, so two viewers of the same record can receive
+        different `is_self` values (see fixture `golden/snapshot-two-viewers.json`). Never contains a Telegram
+        identifier or e-mail.
       type: object
       additionalProperties: false
       required: [id, display_name, is_self]
       properties:
         id: {type: integer, minimum: 1, description: Internal `users.id` (the single principal for web and Telegram).}
-        display_name: {type: [string, 'null'], maxLength: 255}
-        is_self: {type: boolean}
+        display_name: {type: [string, 'null'], maxLength: 255, description: Current display name at response time; may change.}
+        is_self: {type: boolean, description: True when this user is the caller of THIS request. Viewer-relative.}
 
     # ------------------------------------------------------------------
     # Identity & authentication (proposed)
@@ -2002,16 +2177,21 @@ components:
 
         | state | meaning | durable result |
         | --- | --- | --- |
-        | `pending` | Stored by the web layer; core admission not confirmed. | no |
-        | `running` | Admitted by the core; computing (synchronous call elsewhere or workflow graph). | no |
+        | `pending` | Stored by the web layer; the core has no receipt for this key (verified absent). | no |
+        | `running` | The core reports the receipt or graph run as running. Stays `running` however long it takes; age is surfaced only as the hint `MessageResult.running_overdue`. | no |
         | `needs_input` | Core asked for clarification. Terminal for THIS revision; answer with revision + 1 and the same key. | `NEEDS_INPUT` |
         | `completed` | Finished. | `DIRECT_RESULT`, `MODULE_RESULT` or `RUN` |
         | `completed_with_limitations` | Workflow finished with optional parts missing. | `RUN` |
         | `blocked` | Workflow needs context or an accessible source. | `RUN` with `failure` |
         | `failed` | Workflow failed. | `RUN` with `failure` |
-        | `ambiguous` | Outcome unknown after admission. Never re-executed automatically. | none |
-        | `expired` | No result exists and none can be obtained under this key. Never regenerated. | none |
+        | `ambiguous` | The core receipt itself recorded an unknown outcome (core status `ambiguous`, read through the read-only `ExecutionStore.peek`). NEVER inferred from elapsed time. Never re-executed automatically. | none |
+        | `expired` | No result exists and none can be obtained under this key (verified: receipt absent or past retention, no snapshot). Never regenerated. | none |
         | `unsupported` | The core classified the request as free conversation and web chat is disabled. | `UNSUPPORTED` |
+
+        "Temporarily unavailable" is deliberately NOT a state: when the server cannot read the core status
+        reliably (`peek` unavailable, database or core outage) it answers `503 temporarily_unavailable` and
+        leaves the stored state unchanged. The client keeps the same key, re-reads after `Retry-After`, shows
+        "status temporarily unavailable" and never starts a model call by itself.
       type: string
       enum: [pending, running, needs_input, completed, completed_with_limitations, blocked, failed, ambiguous, expired, unsupported]
 
@@ -2019,8 +2199,11 @@ components:
       x-status: proposed
       description: |
         Detail for `expired`. `receipt_expired` - the core receipt passed its 30-day retention before the
-        result was materialized. `never_admitted` - the message was stored but the core never admitted it
-        within the admission window, and the key was closed.
+        result was materialized. `never_admitted` - the message was stored, `ExecutionStore.peek` verified
+        that the core holds NO receipt for the key (so no model call happened), the admission window passed,
+        and the web layer closed the key (conditional update `pending -> expired`; later submits of that key
+        are refused by the web layer before the core is called). Elapsed time alone never closes a key the
+        core has admitted.
       type: [string, 'null']
       enum: [receipt_expired, never_admitted, null]
 
@@ -2276,7 +2459,7 @@ components:
         `getRequestByKey` and `getMessage`. `state` always equals `user_message.state`.
       type: object
       additionalProperties: false
-      required: [schema_version, thread_id, project_id, state, next_action, poll_after_ms, user_message, assistant_message, live_run]
+      required: [schema_version, thread_id, project_id, state, next_action, poll_after_ms, running_overdue, user_message, assistant_message, live_run]
       properties:
         schema_version: {$ref: '#/components/schemas/SchemaVersion'}
         thread_id: {type: string, format: uuid}
@@ -2288,6 +2471,14 @@ components:
           type: [integer, 'null']
           minimum: 500
           maximum: 60000
+        running_overdue:
+          description: |
+            UI hint only. True when `state` is `running` and the core still reports it running past the
+            expected completion window (synchronous calls: `GRAPH_TIMEOUT_SECONDS` plus margin). It changes
+            nothing: the state stays `running`, `next_action` stays `poll`, no model call is made and no key
+            is minted. The UI shows "result not determined yet" and may offer the explicit, warned
+            "start a new request" action. Always false for other states.
+          type: boolean
         user_message: {$ref: '#/components/schemas/UserMessage'}
         assistant_message:
           oneOf:
@@ -2306,12 +2497,19 @@ components:
     # ------------------------------------------------------------------
     SnapshotProvenance:
       x-status: proposed
+      x-persistence: immutable
       description: |
-        Where the snapshot came from. The core receipt id is internal and not exposed. `run_id` is present
-        for graph runs only; it is an identifier for support, never an address in this API.
+        Where the snapshot came from. IMMUTABLE: every field is a column of the INSERT-only `result_snapshots`
+        row, written once at materialization and identical for every viewer. It contains no viewer-relative
+        and no mutable data: the author is the stable `users.id` (`author_user_id`), never a display name or
+        an `is_self` flag (see `ResultSnapshot.author` for the per-viewer projection).
+
+        Provenance is protected by the INSERT-only rule, not by `stored.payload_sha256`, which covers the
+        stored payload only. The core receipt id is internal and not exposed. `run_id` is present for graph
+        runs only; it is an identifier for support, never an address in this API.
       type: object
       additionalProperties: false
-      required: [source_kind, run_id, request_key, revision, created_by, source_completed_at, materialized_at]
+      required: [source_kind, run_id, request_key, revision, author_user_id, source_completed_at, materialized_at]
       properties:
         source_kind:
           description: '`receipt` - synchronous core receipt. `graph_run` - core workflow run. `web_chat_receipt` - FUTURE.'
@@ -2323,7 +2521,10 @@ components:
             - {type: 'null'}
         request_key: {$ref: '#/components/schemas/RequestKey'}
         revision: {type: integer, minimum: 1, maximum: 20}
-        created_by: {$ref: '#/components/schemas/UserRef'}
+        author_user_id:
+          description: Stable `users.id` of the request author (`thread_messages.created_by`). Never changes.
+          type: integer
+          minimum: 1
         source_completed_at:
           description: When the core finished, if known.
           oneOf:
@@ -2331,34 +2532,74 @@ components:
             - {type: 'null'}
         materialized_at: {$ref: '#/components/schemas/Timestamp'}
 
-    SnapshotDecoding:
+    StoredSchemaVersion:
       x-status: proposed
-      description: Which frozen decoder and upcasters produced `payload` for this response. Diagnostic only.
+      description: |
+        Contract version of a STORED payload, fixed at write time (`<contract>.v<n>`). Informational for
+        clients: the set grows whenever a backend DTO evolves (old rows keep their version forever), so it is
+        a pattern, not an enum. The server picks the frozen decoder by `(stored.schema_version, result_kind)`.
+      type: string
+      pattern: '^[a-z][a-z0-9_]{0,40}\.v[1-9][0-9]{0,3}$'
+      examples: [copilot_api.v1, web_api.v2]
+
+    StoredResult:
+      x-status: proposed
+      x-persistence: immutable
+      description: |
+        Metadata of the payload EXACTLY AS PERSISTED in `result_snapshots` (PostgreSQL). Written once, never
+        updated, never rewritten by an upcaster or a migration.
+
+        * `schema_version` - version of the stored DTO (write time).
+        * `payload_sha256` - `sha256` of the canonical JSON of the STORED payload (UTF-8, keys sorted,
+          separators `,` and `:`, no ASCII escaping, no NaN/Infinity). Computed once at write time; verified
+          by the server on every read against the stored payload BEFORE any decoder or upcaster runs.
+        * `writer_version` - backend build that wrote the row.
+
+        The hash is NOT a checksum of `presentation.payload`. It equals
+        `sha256(canonical(presentation.payload))` exactly when `presentation.upcasters` is empty (the stored
+        payload is then presented verbatim); after a non-identity upcast the two differ by design and that is
+        never `result_corrupted`. The stored payload itself is not returned when it differs from the
+        presentation: integrity verification is a server-side duty.
       type: object
       additionalProperties: false
-      required: [decoder, upcasters]
+      required: [schema_version, payload_sha256, writer_version]
       properties:
-        decoder: {type: string, maxLength: 120, examples: ['copilot_api.v1/RUN']}
-        upcasters:
-          description: Applied in order; empty while the stored format is the presented format.
-          type: array
-          maxItems: 16
-          items: {type: string, maxLength: 120}
+        schema_version: {$ref: '#/components/schemas/StoredSchemaVersion'}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+
+    Upcasters:
+      x-status: proposed
+      description: |
+        Ids of the pure upcaster functions applied in order, `<from>-><to>/<result_kind>`. Empty means
+        `presentation.schema_version == stored.schema_version` and the stored payload is presented verbatim.
+        Upcasters take a copy of the stored payload and never write back.
+      type: array
+      maxItems: 16
+      items: {type: string, maxLength: 120, pattern: '^[a-z0-9_.]+->[a-z0-9_.]+/[A-Z_]+$'}
 
     ResultSnapshot:
       x-status: proposed
       description: |
-        Immutable snapshot envelope (`result_snapshots`, INSERT-only, one per reply). Envelope fields:
+        A durable result as returned to the caller. It joins three things with different lifetimes:
 
-        * `envelope_version` - format of the envelope itself (1).
-        * `schema_version` - contract of `payload` at WRITE time. The stored payload is never re-validated
-          against the live DTO; it is read by the frozen decoder registered for
-          `(schema_version, result_kind)` and upcast to the current presentation.
-        * `writer_version` - backend build that wrote the row.
-        * `payload_sha256` - `sha256` of the canonical JSON of the STORED payload (UTF-8, keys sorted,
-          separators `,` and `:`, no ASCII escaping, no NaN/Infinity). Integrity is checked independently of
-          format compatibility.
-        * `payload` - the presented payload. While no upcaster applies it is byte-equivalent to the stored one.
+        | part | lifetime | hashed | same for every viewer |
+        | --- | --- | --- | --- |
+        | `stored` + `provenance` | immutable row of `result_snapshots` (INSERT-only) | `stored.payload_sha256` covers the stored payload | yes |
+        | `presentation` | computed on every read: frozen decoder of `stored.schema_version` + upcaster chain | no | yes |
+        | `author` | computed on every read for the current caller | no | no (`is_self`) |
+
+        Read path (`getMessageResult`, `listThreadMessages`, `getMessage`):
+        1. Integrity on the STORED payload: `sha256(canonical(stored payload)) == stored.payload_sha256`,
+           otherwise `result_corrupted`. Nothing else runs.
+        2. Format: a frozen decoder for `(stored.schema_version, result_kind)` must exist, otherwise
+           `result_format_unsupported` (intact data, not corruption).
+        3. Decode a COPY and run the upcaster chain up to the presentation version declared for this
+           `result_kind` in this document. A failure here is `result_unreadable`. The stored row is untouched.
+
+        `presentation.schema_version` is the version clients are typed against (today `copilot_api.v1` for
+        every Copilot kind). Introducing a newer presentation version is a change of THIS document (new
+        presentation schema + regenerated client types); stored rows are never migrated.
       oneOf:
         - {$ref: '#/components/schemas/DirectResultSnapshot'}
         - {$ref: '#/components/schemas/ModuleResultSnapshot'}
@@ -2380,34 +2621,68 @@ components:
       x-status: proposed
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [copilot_api.v1]}
         result_kind: {type: string, const: DIRECT_RESULT}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/DirectResultPresentation'}
+
+    DirectResultPresentation:
+      x-status: proposed
+      x-persistence: computed
+      description: |
+        `DIRECT_RESULT` payload as presented by this API version: `copilot_api.v1`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/DirectResponse'}
 
     ModuleResultSnapshot:
       x-status: proposed
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [copilot_api.v1]}
         result_kind: {type: string, const: MODULE_RESULT}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/ModuleResultPresentation'}
+
+    ModuleResultPresentation:
+      x-status: proposed
+      x-persistence: computed
+      description: |
+        `MODULE_RESULT` payload as presented by this API version: `copilot_api.v1`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/ModuleResponse'}
 
     NeedsInputSnapshot:
@@ -2417,70 +2692,140 @@ components:
         admitted; without this snapshot the question would be lost.
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [copilot_api.v1]}
         result_kind: {type: string, const: NEEDS_INPUT}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/NeedsInputPresentation'}
+
+    NeedsInputPresentation:
+      x-status: proposed
+      x-persistence: computed
+      description: |
+        `NEEDS_INPUT` payload as presented by this API version: `copilot_api.v1`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/NeedsInputResponse'}
 
     RunSnapshot:
       x-status: proposed
-      description: Written once when the workflow reaches a terminal status (`COMPLETED`, `COMPLETED_WITH_LIMITATIONS`, `BLOCKED`, `FAILED`).
+      description: |
+        Written once when the workflow reaches a terminal status (`COMPLETED`, `COMPLETED_WITH_LIMITATIONS`, `BLOCKED`, `FAILED`).
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [copilot_api.v1]}
         result_kind: {type: string, const: RUN}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/RunPresentation'}
+
+    RunPresentation:
+      x-status: proposed
+      x-persistence: computed
+      description: |
+        `RUN` payload as presented by this API version: `copilot_api.v1`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/RunResponse'}
 
     UnsupportedSnapshot:
       x-status: proposed
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [web_api.v2]}
         result_kind: {type: string, const: UNSUPPORTED}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/UnsupportedPresentation'}
+
+    UnsupportedPresentation:
+      x-status: proposed
+      x-persistence: computed
+      description: |
+        `UNSUPPORTED` payload as presented by this API version: `web_api.v2`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: web_api.v2}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/UnsupportedResult'}
 
     ChatReplySnapshot:
       x-status: future
-      description: FUTURE (B9). Reserved so that adding web chat does not change the envelope.
+      description: |
+        FUTURE (B9). Reserved so that adding web chat does not change the envelope.
       type: object
       additionalProperties: false
-      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      required: [id, message_id, envelope_version, result_kind, stored, provenance, author, presentation]
       properties:
         id: {type: string, format: uuid}
         message_id: {type: string, format: uuid}
         envelope_version: {type: integer, const: 1}
-        schema_version: {type: string, enum: [web_chat.v1]}
         result_kind: {type: string, const: CHAT_REPLY}
-        writer_version: {type: string, minLength: 1, maxLength: 80}
-        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        stored: {$ref: '#/components/schemas/StoredResult'}
         provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
-        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        presentation: {$ref: '#/components/schemas/ChatReplyPresentation'}
+
+    ChatReplyPresentation:
+      x-status: future
+      x-persistence: computed
+      description: |
+        `CHAT_REPLY` payload as presented by this API version: `web_chat.v1`. Computed on every read from the
+        stored payload by the frozen decoder of `stored.schema_version` plus `upcasters`; never persisted.
+      type: object
+      additionalProperties: false
+      required: [schema_version, decoder, upcasters, payload]
+      properties:
+        schema_version: {type: string, const: web_chat.v1}
+        decoder:
+          description: Frozen decoder that read the stored payload, `<stored.schema_version>/<result_kind>`. Diagnostic.
+          type: string
+          maxLength: 120
+          pattern: '^[a-z0-9_.]+/[A-Z_]+$'
+        upcasters: {$ref: '#/components/schemas/Upcasters'}
         payload: {$ref: '#/components/schemas/WebChatReply'}
 
     UnsupportedResult:

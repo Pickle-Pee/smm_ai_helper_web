@@ -5,6 +5,7 @@
   "state": "ambiguous",
   "next_action": "start_new_request",
   "poll_after_ms": null,
+  "running_overdue": false,
   "user_message": {
     "id": "ee7769d3-e401-5557-be85-1ebb0cc9291e",
     "thread_id": "18b2fc5e-2f34-5faf-9698-f311e21c03cd",

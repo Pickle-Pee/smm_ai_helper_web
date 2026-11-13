@@ -67,180 +67,184 @@
         "id": "a88c82f6-b631-5130-8c16-e4620e120a84",
         "message_id": "42d54690-a436-5b64-9dca-51d0aa9d0307",
         "envelope_version": 1,
-        "schema_version": "copilot_api.v1",
         "result_kind": "RUN",
-        "writer_version": "0.0.0-fixture",
-        "payload_sha256": "06691bcde173593a157feeb31a0b539527f9dc59e5b5592cd2c34ac61583567b",
+        "stored": {
+          "schema_version": "copilot_api.v1",
+          "payload_sha256": "06691bcde173593a157feeb31a0b539527f9dc59e5b5592cd2c34ac61583567b",
+          "writer_version": "0.0.0-fixture"
+        },
         "provenance": {
           "source_kind": "graph_run",
           "run_id": "a7098fd4094c38107ff88bdea97585cae0bfcecf9005943003e7e3ce937be1af",
           "request_key": "w-0193a4f2-0001-7a01-8c01-000000000001",
           "revision": 1,
-          "created_by": {
-            "id": 42,
-            "display_name": "Мария",
-            "is_self": true
-          },
+          "author_user_id": 42,
           "source_completed_at": "2026-11-20T09:19:05Z",
           "materialized_at": "2026-11-20T09:19:07Z"
         },
-        "decoded_with": {
-          "decoder": "copilot_api.v1/RUN",
-          "upcasters": []
+        "author": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
         },
-        "payload": {
+        "presentation": {
           "schema_version": "copilot_api.v1",
-          "run_id": "a7098fd4094c38107ff88bdea97585cae0bfcecf9005943003e7e3ce937be1af",
-          "status": "COMPLETED",
-          "strategy": {
-            "strategic_diagnosis": {
-              "text": "Кофейня конкурирует с сетью по удобству, но не использует своё отличие — свежую обжарку.",
-              "items": [
-                "Отличие в продукте есть, но не донесено до гостей"
-              ],
-              "numeric_context": []
-            },
-            "main_growth_constraint": {
-              "text": "Рост ограничен низкой долей повторных визитов, а не притоком новых гостей.",
-              "items": [
-                "Мало поводов вернуться",
-                "Нет механики удержания"
-              ],
-              "numeric_context": []
-            },
-            "strategic_priorities": {
-              "text": "Сначала удержание существующих гостей, затем привлечение новых через зерно навынос.",
-              "items": [
-                "Удержание",
-                "Продажа зерна навынос",
-                "Локальная узнаваемость"
-              ],
-              "numeric_context": []
-            },
-            "trade_offs": {
-              "text": "Отказ от ценовой конкуренции с сетью в пользу ценности продукта.",
-              "items": [
-                "Не участвовать в скидочной гонке"
-              ],
-              "numeric_context": []
-            },
-            "resource_priorities": {
-              "text": "Основной ресурс — время владельца на контент и работу с постоянными гостями.",
-              "items": [
-                "Контент о зерне и обжарке",
-                "Карта постоянного гостя"
-              ],
-              "numeric_context": [
-                "Предоставленный контекст (не независимо проверенный факт) (дословная цитата, не подтверждение вывода): «Средний чек 450 ₽»"
+          "decoder": "copilot_api.v1/RUN",
+          "upcasters": [],
+          "payload": {
+            "schema_version": "copilot_api.v1",
+            "run_id": "a7098fd4094c38107ff88bdea97585cae0bfcecf9005943003e7e3ce937be1af",
+            "status": "COMPLETED",
+            "strategy": {
+              "strategic_diagnosis": {
+                "text": "Кофейня конкурирует с сетью по удобству, но не использует своё отличие — свежую обжарку.",
+                "items": [
+                  "Отличие в продукте есть, но не донесено до гостей"
+                ],
+                "numeric_context": []
+              },
+              "main_growth_constraint": {
+                "text": "Рост ограничен низкой долей повторных визитов, а не притоком новых гостей.",
+                "items": [
+                  "Мало поводов вернуться",
+                  "Нет механики удержания"
+                ],
+                "numeric_context": []
+              },
+              "strategic_priorities": {
+                "text": "Сначала удержание существующих гостей, затем привлечение новых через зерно навынос.",
+                "items": [
+                  "Удержание",
+                  "Продажа зерна навынос",
+                  "Локальная узнаваемость"
+                ],
+                "numeric_context": []
+              },
+              "trade_offs": {
+                "text": "Отказ от ценовой конкуренции с сетью в пользу ценности продукта.",
+                "items": [
+                  "Не участвовать в скидочной гонке"
+                ],
+                "numeric_context": []
+              },
+              "resource_priorities": {
+                "text": "Основной ресурс — время владельца на контент и работу с постоянными гостями.",
+                "items": [
+                  "Контент о зерне и обжарке",
+                  "Карта постоянного гостя"
+                ],
+                "numeric_context": [
+                  "Предоставленный контекст (не независимо проверенный факт) (дословная цитата, не подтверждение вывода): «Средний чек 450 ₽»"
+                ]
+              },
+              "strategic_bets": {
+                "text": "Ставка на то, что свежая обжарка — значимая причина выбора для части аудитории.",
+                "items": [
+                  "Обжарка как причина вернуться"
+                ],
+                "numeric_context": []
+              },
+              "roadmap": {
+                "text": "Первый месяц — механика удержания, второй — запуск зерна навынос, третий — оценка и корректировка.",
+                "items": [
+                  "Месяц 1: удержание",
+                  "Месяц 2: зерно навынос",
+                  "Месяц 3: оценка"
+                ],
+                "numeric_context": []
+              },
+              "risks": {
+                "text": "Гипотеза о ценности обжарки может не подтвердиться для основной аудитории района.",
+                "items": [
+                  "Аудитория выбирает по удобству, а не по вкусу"
+                ],
+                "numeric_context": []
+              },
+              "decision_triggers": {
+                "text": "Если доля повторных визитов не меняется за шесть недель, пересмотреть ставку на обжарку.",
+                "items": [
+                  "Нет роста повторных визитов за 6 недель"
+                ],
+                "numeric_context": []
+              },
+              "limitations": [
+                "Экономика подтверждена только словами владельца."
               ]
             },
-            "strategic_bets": {
-              "text": "Ставка на то, что свежая обжарка — значимая причина выбора для части аудитории.",
-              "items": [
-                "Обжарка как причина вернуться"
+            "experiments": {
+              "designs": [
+                {
+                  "hypothesis": "Карта постоянного гостя увеличит долю повторных визитов",
+                  "target_metric": "Доля гостей с двумя и более визитами за месяц",
+                  "intervention": "Выдавать карту с отметками при каждой покупке в течение четырёх недель",
+                  "expected_signal": "Рост доли повторных визитов относительно предыдущего месяца",
+                  "failure_condition": "Доля повторных визитов не изменилась за четыре недели",
+                  "minimum_required_inputs": [
+                    "Учёт визитов по картам",
+                    "Данные о визитах за предыдущий месяц"
+                  ],
+                  "time_resource_constraints": [
+                    "Четыре недели",
+                    "Печать карт"
+                  ]
+                }
               ],
-              "numeric_context": []
+              "limitations": []
             },
-            "roadmap": {
-              "text": "Первый месяц — механика удержания, второй — запуск зерна навынос, третий — оценка и корректировка.",
-              "items": [
-                "Месяц 1: удержание",
-                "Месяц 2: зерно навынос",
-                "Месяц 3: оценка"
-              ],
-              "numeric_context": []
-            },
-            "risks": {
-              "text": "Гипотеза о ценности обжарки может не подтвердиться для основной аудитории района.",
-              "items": [
-                "Аудитория выбирает по удобству, а не по вкусу"
-              ],
-              "numeric_context": []
-            },
-            "decision_triggers": {
-              "text": "Если доля повторных визитов не меняется за шесть недель, пересмотреть ставку на обжарку.",
-              "items": [
-                "Нет роста повторных визитов за 6 недель"
-              ],
-              "numeric_context": []
-            },
-            "limitations": [
-              "Экономика подтверждена только словами владельца."
-            ]
-          },
-          "experiments": {
-            "designs": [
+            "details": [
               {
-                "hypothesis": "Карта постоянного гостя увеличит долю повторных визитов",
-                "target_metric": "Доля гостей с двумя и более визитами за месяц",
-                "intervention": "Выдавать карту с отметками при каждой покупке в течение четырёх недель",
-                "expected_signal": "Рост доли повторных визитов относительно предыдущего месяца",
-                "failure_condition": "Доля повторных визитов не изменилась за четыре недели",
-                "minimum_required_inputs": [
-                  "Учёт визитов по картам",
-                  "Данные о визитах за предыдущий месяц"
+                "kind": "competitor_analysis",
+                "findings": [
+                  {
+                    "topic": "observed_offer",
+                    "text": "Конкурент делает акцент на скорости обслуживания и акции «кофе с собой».",
+                    "kind": "OBSERVATION",
+                    "confidence": "MEDIUM"
+                  },
+                  {
+                    "topic": "positioning_gap",
+                    "text": "В публичных материалах конкурента нет сообщений о происхождении и обжарке зерна.",
+                    "kind": "INFERENCE",
+                    "confidence": "LOW"
+                  },
+                  {
+                    "topic": "differentiation_hypothesis",
+                    "text": "Свежая еженедельная обжарка может отличать кофейню для гостей, которым важен вкус.",
+                    "kind": "HYPOTHESIS",
+                    "confidence": "LOW"
+                  }
                 ],
-                "time_resource_constraints": [
-                  "Четыре недели",
-                  "Печать карт"
+                "sources": [
+                  {
+                    "label": "Public page; published assertions are not independently verified",
+                    "url": "https://competitor.example/"
+                  },
+                  {
+                    "label": "Supplied business context; not independently verified",
+                    "url": null
+                  }
+                ],
+                "limitations": [
+                  "Проанализирована одна публичная страница конкурента."
                 ]
               }
             ],
-            "limitations": []
-          },
-          "details": [
-            {
-              "kind": "competitor_analysis",
-              "findings": [
-                {
-                  "topic": "observed_offer",
-                  "text": "Конкурент делает акцент на скорости обслуживания и акции «кофе с собой».",
-                  "kind": "OBSERVATION",
-                  "confidence": "MEDIUM"
-                },
-                {
-                  "topic": "positioning_gap",
-                  "text": "В публичных материалах конкурента нет сообщений о происхождении и обжарке зерна.",
-                  "kind": "INFERENCE",
-                  "confidence": "LOW"
-                },
-                {
-                  "topic": "differentiation_hypothesis",
-                  "text": "Свежая еженедельная обжарка может отличать кофейню для гостей, которым важен вкус.",
-                  "kind": "HYPOTHESIS",
-                  "confidence": "LOW"
-                }
-              ],
-              "sources": [
-                {
-                  "label": "Public page; published assertions are not independently verified",
-                  "url": "https://competitor.example/"
-                },
-                {
-                  "label": "Supplied business context; not independently verified",
-                  "url": null
-                }
-              ],
+            "evidence_coverage": {
+              "competitors_supplied": 1,
+              "competitors_accepted": 1,
               "limitations": [
-                "Проанализирована одна публичная страница конкурента."
+                "Market research was not supplied.",
+                "Only one competitor was analyzed."
               ]
-            }
-          ],
-          "evidence_coverage": {
-            "competitors_supplied": 1,
-            "competitors_accepted": 1,
+            },
             "limitations": [
               "Market research was not supplied.",
-              "Only one competitor was analyzed."
-            ]
-          },
-          "limitations": [
-            "Market research was not supplied.",
-            "Only one competitor was analyzed.",
-            "Экономика подтверждена только словами владельца.",
-            "Проанализирована одна публичная страница конкурента."
-          ],
-          "failure": null
+              "Only one competitor was analyzed.",
+              "Экономика подтверждена только словами владельца.",
+              "Проанализирована одна публичная страница конкурента."
+            ],
+            "failure": null
+          }
         }
       }
     }

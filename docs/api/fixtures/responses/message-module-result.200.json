@@ -5,6 +5,7 @@
   "state": "completed",
   "next_action": "none",
   "poll_after_ms": null,
+  "running_overdue": false,
   "user_message": {
     "id": "36e7d00b-31c9-5173-8572-71c5d0bfa242",
     "thread_id": "3c293f80-16c9-5722-93de-9836e3b8d31a",
@@ -43,39 +44,43 @@
       "id": "620f3ff0-1569-5729-b32d-2743b2ae1f7c",
       "message_id": "e8ab996f-c0d4-5da0-9212-d51b7f352e5e",
       "envelope_version": 1,
-      "schema_version": "copilot_api.v1",
       "result_kind": "MODULE_RESULT",
-      "writer_version": "0.0.0-fixture",
-      "payload_sha256": "86239883cd55f3b497e457b0c5c9cbd8fd9c9f19999ae9715adb4ac8b6a70030",
+      "stored": {
+        "schema_version": "copilot_api.v1",
+        "payload_sha256": "86239883cd55f3b497e457b0c5c9cbd8fd9c9f19999ae9715adb4ac8b6a70030",
+        "writer_version": "0.0.0-fixture"
+      },
       "provenance": {
         "source_kind": "receipt",
         "run_id": null,
         "request_key": "w-0193a4f2-0003-7a03-8c03-000000000003",
         "revision": 1,
-        "created_by": {
-          "id": 42,
-          "display_name": "Мария",
-          "is_self": true
-        },
+        "author_user_id": 42,
         "source_completed_at": "2026-11-20T11:00:41Z",
         "materialized_at": "2026-11-20T11:00:41Z"
       },
-      "decoded_with": {
-        "decoder": "copilot_api.v1/MODULE_RESULT",
-        "upcasters": []
+      "author": {
+        "id": 42,
+        "display_name": "Мария",
+        "is_self": true
       },
-      "payload": {
+      "presentation": {
         "schema_version": "copilot_api.v1",
-        "owned_site": null,
-        "kind": "MODULE_RESULT",
-        "result": {
-          "kind": "post",
-          "headline": "Осень в чашке: три новых напитка",
-          "body": "Мы обжарили свежую партию зерна и собрали на её основе три осенних напитка. Загляните попробовать, пока партия свежая.",
-          "cta": "Приходите на этой неделе — расскажем о каждом напитке.",
-          "limitations": [
-            "Состав и цены напитков в запросе не указаны, поэтому в тексте их нет."
-          ]
+        "decoder": "copilot_api.v1/MODULE_RESULT",
+        "upcasters": [],
+        "payload": {
+          "schema_version": "copilot_api.v1",
+          "owned_site": null,
+          "kind": "MODULE_RESULT",
+          "result": {
+            "kind": "post",
+            "headline": "Осень в чашке: три новых напитка",
+            "body": "Мы обжарили свежую партию зерна и собрали на её основе три осенних напитка. Загляните попробовать, пока партия свежая.",
+            "cta": "Приходите на этой неделе — расскажем о каждом напитке.",
+            "limitations": [
+              "Состав и цены напитков в запросе не указаны, поэтому в тексте их нет."
+            ]
+          }
         }
       }
     }

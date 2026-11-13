@@ -58,61 +58,65 @@
         "id": "9b0019c7-3c1d-50c7-ad5b-b46697d644d9",
         "message_id": "c29aa840-7bf1-58fe-ad95-f6947440e33e",
         "envelope_version": 1,
-        "schema_version": "copilot_api.v1",
         "result_kind": "NEEDS_INPUT",
-        "writer_version": "0.0.0-fixture",
-        "payload_sha256": "f6cdb7dc7d2218833782168c881e0ee77e71df9c32ded83f7146ee0cd5cfa854",
+        "stored": {
+          "schema_version": "copilot_api.v1",
+          "payload_sha256": "f6cdb7dc7d2218833782168c881e0ee77e71df9c32ded83f7146ee0cd5cfa854",
+          "writer_version": "0.0.0-fixture"
+        },
         "provenance": {
           "source_kind": "receipt",
           "run_id": null,
           "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
           "revision": 1,
-          "created_by": {
-            "id": 42,
-            "display_name": "Мария",
-            "is_self": true
-          },
+          "author_user_id": 42,
           "source_completed_at": "2026-11-20T10:01:19Z",
           "materialized_at": "2026-11-20T10:01:19Z"
         },
-        "decoded_with": {
-          "decoder": "copilot_api.v1/NEEDS_INPUT",
-          "upcasters": []
+        "author": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
         },
-        "payload": {
+        "presentation": {
           "schema_version": "copilot_api.v1",
-          "owned_site": {
-            "outcome": "ACQUIRED",
-            "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
-            "candidates": [
-              {
-                "statement_id": "stmt_784b44d5ae6da62bf4b332a9",
-                "field": "stated_product_service",
-                "statement": "Кофейня со свежей обжаркой и продажей зерна навынос",
-                "source_url": "https://zerno.example/",
-                "trust": "site_claim"
-              },
-              {
-                "statement_id": "stmt_35456158e02fe9f1ea084294",
-                "field": "stated_value_propositions",
-                "statement": "Обжариваем зерно каждую неделю",
-                "source_url": "https://zerno.example/",
-                "trust": "site_claim"
-              }
+          "decoder": "copilot_api.v1/NEEDS_INPUT",
+          "upcasters": [],
+          "payload": {
+            "schema_version": "copilot_api.v1",
+            "owned_site": {
+              "outcome": "ACQUIRED",
+              "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
+              "candidates": [
+                {
+                  "statement_id": "stmt_784b44d5ae6da62bf4b332a9",
+                  "field": "stated_product_service",
+                  "statement": "Кофейня со свежей обжаркой и продажей зерна навынос",
+                  "source_url": "https://zerno.example/",
+                  "trust": "site_claim"
+                },
+                {
+                  "statement_id": "stmt_35456158e02fe9f1ea084294",
+                  "field": "stated_value_propositions",
+                  "statement": "Обжариваем зерно каждую неделю",
+                  "source_url": "https://zerno.example/",
+                  "trust": "site_claim"
+                }
+              ]
+            },
+            "kind": "NEEDS_INPUT",
+            "code": "POSITIONING_CONTEXT_MISSING",
+            "alternatives": [
+              [
+                "customer_job_or_need",
+                "product_truth",
+                "relevant_alternative"
+              ]
+            ],
+            "actions": [
+              "Supply the missing business context or review the source observations."
             ]
-          },
-          "kind": "NEEDS_INPUT",
-          "code": "POSITIONING_CONTEXT_MISSING",
-          "alternatives": [
-            [
-              "customer_job_or_need",
-              "product_truth",
-              "relevant_alternative"
-            ]
-          ],
-          "actions": [
-            "Supply the missing business context or review the source observations."
-          ]
+          }
         }
       }
     },
@@ -164,60 +168,64 @@
         "id": "f81be183-5b2c-5212-acc3-9bf27b9f27df",
         "message_id": "891a0c79-dab3-5947-9b86-8b2a4dd68416",
         "envelope_version": 1,
-        "schema_version": "copilot_api.v1",
         "result_kind": "MODULE_RESULT",
-        "writer_version": "0.0.0-fixture",
-        "payload_sha256": "4e91884f177a311da46a77f58312f913c80d881fd3a0363380aacb259fae973b",
+        "stored": {
+          "schema_version": "copilot_api.v1",
+          "payload_sha256": "4e91884f177a311da46a77f58312f913c80d881fd3a0363380aacb259fae973b",
+          "writer_version": "0.0.0-fixture"
+        },
         "provenance": {
           "source_kind": "receipt",
           "run_id": null,
           "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
           "revision": 2,
-          "created_by": {
-            "id": 42,
-            "display_name": "Мария",
-            "is_self": true
-          },
+          "author_user_id": 42,
           "source_completed_at": "2026-11-20T10:06:12Z",
           "materialized_at": "2026-11-20T10:06:12Z"
         },
-        "decoded_with": {
-          "decoder": "copilot_api.v1/MODULE_RESULT",
-          "upcasters": []
+        "author": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
         },
-        "payload": {
+        "presentation": {
           "schema_version": "copilot_api.v1",
-          "owned_site": {
-            "outcome": "ACQUIRED",
-            "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
-            "candidates": []
-          },
-          "kind": "MODULE_RESULT",
-          "result": {
-            "kind": "positioning",
-            "findings": [
-              {
-                "topic": "positioning_statement",
-                "text": "Кофейня у дома для тех, кому важен вкус: зерно обжаривается каждую неделю.",
-                "kind": "RECOMMENDATION",
-                "confidence": "MEDIUM"
-              },
-              {
-                "topic": "reason_to_believe",
-                "text": "Владелец подтвердил: кофейня со свежей обжаркой и продажей зерна навынос.",
-                "kind": "OBSERVATION",
-                "confidence": "MEDIUM"
-              }
-            ],
-            "sources": [
-              {
-                "label": "Supplied business context; not independently verified",
-                "url": null
-              }
-            ],
-            "limitations": [
-              "Сравнение с конкурентом основано только на словах владельца."
-            ]
+          "decoder": "copilot_api.v1/MODULE_RESULT",
+          "upcasters": [],
+          "payload": {
+            "schema_version": "copilot_api.v1",
+            "owned_site": {
+              "outcome": "ACQUIRED",
+              "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
+              "candidates": []
+            },
+            "kind": "MODULE_RESULT",
+            "result": {
+              "kind": "positioning",
+              "findings": [
+                {
+                  "topic": "positioning_statement",
+                  "text": "Кофейня у дома для тех, кому важен вкус: зерно обжаривается каждую неделю.",
+                  "kind": "RECOMMENDATION",
+                  "confidence": "MEDIUM"
+                },
+                {
+                  "topic": "reason_to_believe",
+                  "text": "Владелец подтвердил: кофейня со свежей обжаркой и продажей зерна навынос.",
+                  "kind": "OBSERVATION",
+                  "confidence": "MEDIUM"
+                }
+              ],
+              "sources": [
+                {
+                  "label": "Supplied business context; not independently verified",
+                  "url": null
+                }
+              ],
+              "limitations": [
+                "Сравнение с конкурентом основано только на словах владельца."
+              ]
+            }
           }
         }
       }

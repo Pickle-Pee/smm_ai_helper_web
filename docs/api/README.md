@@ -1,7 +1,10 @@
 # Brenvio Web API v2 — контракт (C0, черновик)
 
-> **Статус: PROPOSED.** Ни один маршрут `/v2` в backend сегодня не существует. Этот каталог — только
-> документация, OpenAPI и JSON-примеры. Код backend и frontend, миграции, Docker, CI и production не менялись.
+> **Статус: PROPOSED, `2.0.0-draft.2`.** Ни один маршрут `/v2` в backend сегодня не существует. Этот каталог — только
+> документация, OpenAPI, JSON-примеры и docs-only скрипт проверки. Код backend и frontend, миграции, Docker, Caddy,
+> CI и production не менялись. Draft.2 — ответ на [ревью PR #8](https://github.com/Pickle-Pee/smm_ai_helper_web/pull/8#issuecomment-6864808422):
+> модель snapshot (§11.1), `is_self` вне неизменяемых данных (§11.1), кеширование (§3.1), `ambiguous` и `peek` (§10.3),
+> `Retry-After` и квоты (§9.1).
 >
 > Основание: аудит [#6](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/6)
 > ([Addendum 1](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/6#issuecomment-6857772261),
@@ -16,9 +19,10 @@
 
 | Файл | Что это |
 |---|---|
-| [`web-api-v2.openapi.yaml`](web-api-v2.openapi.yaml) | OpenAPI 3.1: 28 операций, 97 схем, каталог ошибок (`x-error-catalog`) |
-| [`fixtures/`](fixtures/) | 59 JSON-примеров: ответы, ошибки, запросы, golden-негативы; реестр — [`fixtures/index.json`](fixtures/index.json) |
+| [`web-api-v2.openapi.yaml`](web-api-v2.openapi.yaml) | OpenAPI 3.1 (`2.0.0-draft.2`): 28 операций, 106 схем, каталог ошибок (`x-error-catalog`) |
+| [`fixtures/`](fixtures/) | 64 JSON-примера: ответы, ошибки, запросы, 4 golden-кейса; реестр — [`fixtures/index.json`](fixtures/index.json) |
 | [`decision-register.md`](decision-register.md) | Реестр решений D1–D18, три замечания финального ревью, решения C0 и открытые вопросы |
+| [`tools/check_contract.py`](tools/check_contract.py) | Независимая проверка контракта (OpenAPI 3.1, `$ref`, фикстуры, golden-кейсы, кеширование, DTO backend) — §16 |
 
 Метки в спецификации:
 
@@ -28,6 +32,7 @@
 | `x-status: proposed` | операции, схемы | новое в Web API v2; цель внутренней технической беты |
 | `x-status: future` | операции, схемы | спроектировано, за feature flag, в бету не входит (веб-чат) |
 | `x-status: deferred` | операции, схемы | форма намеренно не зафиксирована (детали legacy-истории) |
+| `x-persistence` | схемы | `immutable` — записывается один раз и не меняется; `computed` — вычисляется при каждом чтении; `computed-per-viewer` — зависит от того, кто запрашивает |
 
 Существующие DTO: `BusinessContext`, `MarketSource`, `Confirmation`, `ConfirmationCandidate`, `OwnedSiteResult`,
 `Finding`, `SourceSummary`, `Findings`, `Post`, `StrategySection`, `Strategy`, `Experiment`, `Experiments`,
@@ -104,6 +109,46 @@ handle /api/v2/* {
 `GRAPH_TIMEOUT_SECONDS` (сейчас 300 с), потому что DIRECT и одиночный модуль выполняются внутри HTTP-запроса.
 Ответы edge (413, 502, 504) могут быть не JSON — клиент обрабатывает их как `temporarily_unavailable`.
 До F4 требуется подтверждение фактической prod-топологии (OQ-4).
+
+### 3.1 Кеширование и граница edge
+
+Каждый ответ `/v2` — данные тенанта или зависит от сессии, поэтому контракт один для всех:
+
+**`Cache-Control: private, no-store`** — на каждом ответе каждой операции, включая `204`, все ошибки
+(`401`, `403`, `404`, `409`, `410`, `422`, `429`, `503`) и ответы `200`/`202` с AI-входами и результатами.
+В OpenAPI это `components/headers/CacheControlPrivate` (`const: "private, no-store"`); проверка в
+[`tools/check_contract.py`](tools/check_contract.py) падает, если хотя бы у одного ответа заголовка нет.
+
+| Область | Операции |
+|---|---|
+| Пользователь и сессия | `exchangeTelegramLoginToken`, `getCsrfToken`, `logout`, `getMe` |
+| Организации и проекты | `listOrganizations`, `listProjects`, `createProject`, `getProject`, `updateProject` |
+| Бренды | `getProjectBrand`, `updateProjectBrand`, `importTelegramBrand` |
+| Треды и сообщения | `listThreads`, `createThread`, `getThread`, `removeThread`, `listThreadMessages`, `submitMessage`, `getRequestByKey`, `getMessage` |
+| AI-результаты | `getMessageResult` |
+| Наставник | `getMentorExplanation`, `createMentorExplanation`, `listMentorQuestions`, `askMentorQuestion` |
+| История Telegram | `listTelegramHistory`, `getTelegramHistoryItem` (deferred) |
+| Веб-чат (future) | `submitChatMessage` |
+
+Почему `private, no-store`, а не только `no-store`: `no-store` запрещает хранение любому кешу, `private`
+дополнительно и явно запрещает общим кешам, если промежуточный узел не поддерживает `no-store`. Публичных,
+кешируемых ответов у `/v2` нет. ETag, `Last-Modified` и условные запросы в контракте не используются.
+
+Граница CDN и reverse proxy (требования, **ничего не применено**; действующий Caddy не меняется):
+
+- Единственный путь к API — same-origin `/api/v2/*` через Caddy на том же хосте. CDN перед этим путём в
+  архитектуре C-lite не предусмотрен. Если CDN или другой прокси появится перед `app.<domain>`, `/api/*` для
+  него — bypass/pass-through: без кеширования, без «cache everything», без игнорирования `Cache-Control`,
+  без кеша по ключу без cookie.
+- Caddy в стандартной сборке ответы не кеширует; модули HTTP-кеша на маршрут `/api/v2/*` не подключаются.
+- Ответы, сгенерированные самим edge (413, 502, 504), не содержат данных тенанта, но в F4 маршрут должен
+  гарантировать `Cache-Control: private, no-store` и на них. Точная директива Caddy проверяется в F4
+  (`caddy validate` на staging) и в этот PR не входит.
+- Next.js не проксирует `/api/v2` и не кеширует его ответы: в клиенте — `fetch(..., {cache: "no-store"})`,
+  никакого Service Worker-кеша для `/api/*`. В IndexedDB хранится только незавершённый запрос автора
+  (§10, п. 2); при выходе он очищается.
+- Smoke-тест F4: каждый ответ `/api/v2/*` (включая 401/404 и edge-ошибки) содержит `private, no-store`, а
+  повторный запрос с другой cookie никогда не получает чужое тело.
 
 ## 4. Trust boundaries
 
@@ -207,7 +252,7 @@ erDiagram
 | `project_brands` | **отдельная таблица**, ровно одна строка на проект | `project_id` (PK, FK cascade), `org_id`, поля бренда, `extra_json`, `version`, `updated_by`, `imported_from_brand_profile_id` (без FK), `imported_at` | `ProjectBrand` |
 | `workspace_threads` | проектный контейнер запросов | `id`, `org_id`, `project_id`, `created_by`, `kind`, `title`, `last_seq`, слот in-flight, `deleted_at` | `Thread` |
 | `thread_messages` | запрос (ревизия) и ответ | `thread_id`, `org_id`, `project_id`, `seq`, `role`, `created_by`, `request_key`, `revision`, принятый запрос, `payload_sha256`, `state`, `core_kind`, `core_ref`; `UNIQUE(thread_id, seq)`, `UNIQUE(created_by, request_key, revision, role)` | `UserMessage`, `AssistantMessage` |
-| `result_snapshots` | неизменяемый результат | `message_id` (UNIQUE), `org_id`, `project_id`, `envelope_version`, `schema_version`, `result_kind`, `payload`, `payload_sha256`, `writer_version`, provenance | `ResultSnapshot` |
+| `result_snapshots` | неизменяемый результат (INSERT-only) | `message_id` (UNIQUE), `org_id`, `project_id`, `envelope_version`, `result_kind`, `schema_version` (сохранённого DTO), `payload`, `payload_sha256`, `writer_version`, provenance: `author_user_id`, `source_kind`, `run_id`, `request_key`, `revision`, `source_completed_at`, `materialized_at`. Ни `is_self`, ни имени автора, ни результата upcasters | `ResultSnapshot.stored`, `.provenance` |
 
 Вспомогательные (в API не видны): `auth_tokens` (одноразовые токены входа), `web_chat_context` (future, B9).
 
@@ -328,8 +373,25 @@ Telegram-identity; параметров организации или проек
 | 409 | `request_conflict`, `revision_conflict`, `thread_busy`, `stale_project`, `idempotency_conflict`, `confirmation_changed`, `confirmation_unavailable`, `telegram_identity_required`, `import_source_missing`, `mentor_not_applicable`, `result_not_ready`, `result_format_unsupported`, `stale_thread` (future) | по коду, без автоматического повтора (кроме `thread_busy`, `result_not_ready`) |
 | 410 | `result_gone` | «результат недоступен»; новый запрос — только по явному действию |
 | 413 / 422 | `payload_too_large`, `invalid_request`, `invalid_confirmation` | исправить запрос |
-| 429 | `rate_limited`, `quota_exceeded` | подождать `Retry-After`; лимиты проверяются **до** обращения к ядру |
+| 429 | `rate_limited`, `quota_exceeded` | см. §9.1; лимиты проверяются **до** записи сообщения и обращения к ядру |
 | 503 | `temporarily_unavailable`, `result_corrupted`, `result_unreadable` | восстановление по ключу / сообщение о сбое |
+
+Все ответы, включая ошибки, приходят с `Cache-Control: private, no-store` (§3.1).
+
+### 9.1 Rate limiting и квоты
+
+| | `rate_limited` | `quota_exceeded` |
+|---|---|---|
+| Что это | короткое окно (секунды–минуты) на пользователя и маршрут | суточный лимит генераций пользователя или организации |
+| Когда проверяется | до записи сообщения, claim ядра и вызова модели: ничего не сохранено и не принято | так же |
+| `Retry-After` | всегда; delta-seconds, обычно секунды–минуты | всегда; секунды до `quota.resets_at`, **может быть больше 3600** (до суток и более) |
+| Тело | `retry_after_seconds` | `retry_after_seconds` + `quota: {scope: user\|organization, window: day, resets_at}` |
+| Политика повтора (`x-error-catalog`) | `after_delay`: клиент может один раз автоматически повторить **тот же** запрос с тем же ключом после `Retry-After`; второй подряд `429` — показать пользователю | `after_reset`: **никогда** автоматически; UI показывает время сброса из `quota.resets_at` |
+| Ключ | тот же | ничего не было принято, поэтому позже пользователь явно отправляет тот же или новый запрос; генерации ещё не было, дубля быть не может |
+
+Верхней границы у `Retry-After` и `retry_after_seconds` нет (было 3600 — противоречило суточным квотам).
+Клиент не вычисляет время сам. Числовые лимиты и граница суток (фиксированные UTC-сутки или скользящие 24 ч)
+остаются открытым решением OQ-6; контракт от них не зависит, потому что авторитетен `resets_at`.
 
 Существующие коды ядра сохраняют смысл: `request_conflict`, `confirmation_changed`, `confirmation_unavailable`,
 `invalid_confirmation`, `invalid_request`, `not_found`, `temporarily_unavailable`. Не выходят на `/v2`:
@@ -360,9 +422,10 @@ Exactly-once для внешней модели **не обещается**.
    Клиент payload под ключом не меняет; UI сообщает, что запрос уже отправлен в другом виде. Новая задача — новый ключ.
    `409 revision_conflict` — ревизия не следующая за `needs_input` или изменён `message`.
 6. **`503` и неизвестный результат.** `503 temporarily_unavailable` означает «исход пока не определён», а не «ничего не
-   произошло»: клиент восстанавливается по ключу (п. 3) и **не создаёт новый ключ**. Если ядро зафиксировало неизвестный
-   исход, состояние становится `ambiguous` (HTTP 200): автоповтора нет, результат «неизвестен». Кнопка «Отправить заново»
-   создаёт **новый** ключ и предупреждает, что генерация может повториться.
+   произошло»: клиент восстанавливается по ключу (п. 3) и **не создаёт новый ключ** — ни автоматически, ни по кнопке
+   «Повторить». `ambiguous` (HTTP 200) — только когда **само ядро** записало неизвестный исход в receipt (§10.3);
+   по времени, зависанию или отсутствию ответа он не выводится никогда. Автоповтора нет. Единственный путь к новому
+   ключу — явное действие «Начать новый запрос» с предупреждением, что генерация может повториться.
 7. **Polling асинхронных задач.** `202` + `state: running` → `GET /v2/messages/{id}` с интервалом `poll_after_ms`
    (2 с → 5 с → 10 с), пока `next_action == "poll"`. SSE и стриминга нет. После перезагрузки или с другого устройства
    клиент находит выполняющийся запрос через `Thread.in_flight`.
@@ -377,18 +440,33 @@ Exactly-once для внешней модели **не обещается**.
 
 | `state` | Откуда | Snapshot | `next_action` автора |
 |---|---|---|---|
-| `pending` | сообщение сохранено, admission ядра не подтверждён | нет | `resubmit_same_key` |
-| `running` | ядро приняло запрос (синхронный вызов или граф) | нет | `poll` |
+| `pending` | сообщение сохранено, receipt ядра отсутствует (проверено `peek`) | нет | `resubmit_same_key` |
+| `running` | ядро сообщает receipt или граф как выполняющийся; сколько бы это ни длилось | нет | `poll` |
 | `needs_input` | `NEEDS_INPUT` | `NEEDS_INPUT` | `answer_clarification` |
 | `completed` | `DIRECT_RESULT`, `MODULE_RESULT`, run `COMPLETED` | да | `none` |
 | `completed_with_limitations` | run `COMPLETED_WITH_LIMITATIONS` | `RUN` | `none` |
 | `blocked` / `failed` | run `BLOCKED` / `FAILED` | `RUN` с `PublicFailure` | `start_new_request` |
-| `ambiguous` | исход после admission неизвестен | нет | `start_new_request` |
-| `expired` | receipt истёк до материализации либо запрос не был принят в окне admission | нет | `start_new_request` |
+| `ambiguous` | **ядро записало** receipt `ambiguous` (`finish` без ответа) | нет | `start_new_request` |
+| `expired` | receipt отсутствует или старше retention, snapshot нет; либо запрос не был принят ядром (проверено `peek`) и ключ закрыт | нет | `start_new_request` |
 | `unsupported` | ядро вернуло `CONVERSATION`, веб-чат выключен | `UNSUPPORTED` | `none` |
 
 `next_action` вычисляет сервер; клиент не воспроизводит автомат состояний. Не-автор вместо действий автора получает
 `wait_for_author`.
+
+Шесть пользовательских статусов и как они передаются:
+
+| Статус в UI | На проводе | Автоматические действия клиента |
+|---|---|---|
+| Выполняется | `200`/`202`, `state: running`, `running_overdue: false` | polling по `poll_after_ms` |
+| Выполняется дольше обычного — «результат пока не определён» | `200`, `state: running`, `running_overdue: true` | polling реже; можно предложить явное «Начать новый запрос» с предупреждением |
+| Готово | `state: completed` / `completed_with_limitations` | нет |
+| Нужно уточнение | `state: needs_input` | нет; автор отвечает ревизией + 1 |
+| Исход неизвестен (ambiguous) | `state: ambiguous` | нет; только явное «Начать новый запрос» |
+| Истёк | `state: expired` | нет |
+| Статус временно недоступен | `503 temporarily_unavailable` + `Retry-After`, состояние не меняется | повторное **чтение** по тому же ключу; не отправка |
+
+`running_overdue` — подсказка UI, а не состояние: сервер не меняет `state`, не вызывает модель и не создаёт ключ.
+Окно: для синхронных вызовов — `GRAPH_TIMEOUT_SECONDS` плюс запас; точное значение — реализационная деталь B5.
 
 ### 10.2 Точки отказа
 
@@ -398,48 +476,105 @@ Exactly-once для внешней модели **не обещается**.
 | между записью сообщения и claim ядра | `pending`, receipt нет | `next_action: resubmit_same_key`; одну генерацию гарантирует claim ядра |
 | между claim и завершением | receipt `running` | `running` → polling |
 | ядро завершилось, snapshot не записан | receipt `completed` / `needs_input` | чтение автором: replay из `ExecutionStore.get` без модели → идемпотентная материализация |
-| ядро зафиксировало `ambiguous` | receipt `ambiguous` | состояние `ambiguous`; новый ключ только по явному действию |
+| ядро зафиксировало `ambiguous` | receipt `ambiguous` | `peek` → состояние `ambiguous`; новый ключ только по явному действию |
+| процесс упал, держа claim | receipt `running` навсегда (ядро не переисполняет) | `running` + `running_overdue: true`; **не** `ambiguous`; новый ключ только по явному действию |
+| `peek` недоступен / ошибка БД | без изменений | `503 temporarily_unavailable`, повторное чтение тем же ключом |
 | workflow терминален, snapshot нет | run терминален | ленивая материализация при чтении + sweeper |
 | receipt удалён (30 дней) до материализации | receipt нет | `expired`, без регенерации; graph runs не истекают |
 | двойной клик, две вкладки | — | уникальность `(created_by, request_key, revision, role)` + claim ядра; второй ответ — replay |
 | другой запрос в том же треде | слот треда занят | `409 thread_busy` |
 
-Замечание для backend (C0-7): через публичные методы `ExecutionStore` состояния `running` и `ambiguous` неразличимы
-(оба → 503). Нужен read-only `peek` состояния receipt в ядре (по согласованию с Codex) либо вывод по времени:
-синхронное исполнение ограничено `GRAPH_TIMEOUT_SECONDS`, receipt без терминала дольше этого окна считается `ambiguous`.
+### 10.3 Read-only проверка состояния Copilot receipt (`ExecutionStore.peek`)
+
+Через публичные методы `ExecutionStore` сегодня состояния `running` и `ambiguous` неразличимы: `get` отвечает
+`ProviderUnavailable` (503) на оба. Вывод по времени **исключён** из контракта (было альтернативой в draft.1): зависший
+или долгий запрос не доказывает, что receipt записан как `ambiguous`. Контракт требует от ядра одного аддитивного
+метода (proposed, по согласованию с Codex, OQ-9):
+
+```python
+async def peek(self, owner: int, key: str) -> Literal["running", "completed", "needs_input", "ambiguous"] | None
+```
+
+| Свойство | Требование |
+|---|---|
+| Запрос | один `SELECT` строки `identity(owner, key)` с теми же фильтрами, что у `get`: `user_id == owner`, `workflow_type == copilot_execution.v1`, `created_at` в пределах 30 дней |
+| Результат | `row.status` либо `None` (нет строки, чужой владелец, другой тип, истёк retention) |
+| Побочные эффекты | **нет**: без `FOR UPDATE`, без `DELETE` по retention, без claim, без проверки fingerprint, без replay, без вызова модели |
+| Кто вызывает | только web-слой для автора (`owner = principal.user_id`); другим участникам receipt не читается |
+| Telegram | поведение `claim`/`finish`/`get` не меняется; существующие тесты без изменений |
+
+Порядок чтения (`getRequestByKey`, `getMessage` автором) для ревизии без snapshot:
+
+1. `peek(owner, key)`; исключение или метод не развёрнут → `503 temporarily_unavailable`, состояние в БД не меняется.
+2. `completed` / `needs_input` → существующий `get` (replay без модели) → идемпотентная вставка snapshot
+   (`INSERT … ON CONFLICT (message_id) DO NOTHING` + перевод состояния в одной web-транзакции).
+3. `running` → `state: running`; `running_overdue` вычисляется по возрасту только как подсказка.
+4. `ambiguous` → `state: ambiguous` (единственный путь к этому состоянию).
+5. `None` → `pending` + `resubmit_same_key`, если сообщение не было принято; `expired` (`receipt_expired`), если
+   receipt истёк до материализации. Решение принимается по факту отсутствия receipt, а не по времени ожидания.
+6. Повторная проверка членства перед ответом (§7.3).
+
+Откат и восстановление: сбой на шаге 2 откатывает web-транзакцию целиком — receipt ядра не тронут, следующее
+чтение повторяет ту же идемпотентную вставку. Если `peek` придётся отозвать, `/v2` деградирует к
+`503 temporarily_unavailable` для неопределённых состояний — никогда к `ambiguous`, к повторному вызову модели
+или к новому `request_key`.
 
 ## 11. Долговременное хранение
 
 Receipt ядра хранится 30 дней и активно удаляется; историей он быть не может. Долговременная история — неизменяемые snapshots.
 
-### 11.1 Конверт
+### 11.1 Три части результата: хранимое, представление, проекция зрителя
 
-| Поле | Смысл |
-|---|---|
-| `envelope_version` | формат самого конверта (`1`) |
-| `schema_version` | контракт `payload` **на момент записи**: `copilot_api.v1`, `web_api.v2` (для `UNSUPPORTED`), `web_chat.v1` (future) |
-| `result_kind` | `DIRECT_RESULT`, `MODULE_RESULT`, `NEEDS_INPUT`, `RUN`, `UNSUPPORTED`, `CHAT_REPLY` (future) |
-| `writer_version` | сборка backend, записавшая строку |
-| `payload_sha256` | `sha256` канонического JSON сохранённого payload |
-| `provenance` | `source_kind`, `run_id`, `request_key`, `revision`, `created_by`, `source_completed_at`, `materialized_at` |
-| `payload` | ровно тот allowlist-DTO, который прошёл валидацию при записи |
+Ответ `ResultSnapshot` соединяет данные с разным временем жизни. Draft.1 смешивал их (`payload_sha256` описывал
+хранимый payload, а `payload` в том же конверте — уже представление); draft.2 разделяет явно:
+
+| Часть ответа | Откуда | Меняется? | Хэшируется? | Одинакова для всех зрителей? |
+|---|---|---|---|---|
+| `stored` — `schema_version`, `payload_sha256`, `writer_version` | строка `result_snapshots` | никогда (INSERT-only) | `payload_sha256` — от **хранимого** payload | да |
+| `provenance` — `source_kind`, `run_id`, `request_key`, `revision`, **`author_user_id`**, `source_completed_at`, `materialized_at` | та же строка | никогда (INSERT-only) | нет: защищено правилом INSERT-only, а не хэшем | да |
+| `presentation` — `schema_version`, `decoder`, `upcasters`, `payload` | вычисляется при каждом чтении из хранимого payload | при выпуске новой версии представления | нет | да |
+| `author` — `UserRef` (`id`, `display_name`, `is_self`) | вычисляется для текущего пользователя | `display_name` — текущее имя, `is_self` — относительно зрителя | нет | **нет** |
+
+Гарантии контракта:
+
+1. **Хэш — от исходного сохранённого payload.** `stored.payload_sha256 = sha256(canonical(хранимый payload))`,
+   вычисляется один раз при записи и проверяется сервером на каждом чтении по хранимой строке **до** декодера.
+2. **Upcaster не изменяет сохранённые данные.** Декодер и upcasters работают с копией; ничего не записывается обратно,
+   ленивой миграции строк нет, строка с `copilot_api.v1` остаётся `copilot_api.v1` навсегда.
+3. **Версия сохранённого DTO известна** — `stored.schema_version` (паттерн `<контракт>.v<n>`, не enum: набор растёт).
+4. **Версия возвращаемого представления известна** — `presentation.schema_version` (`const` в схеме каждого
+   `result_kind`; сегодня `copilot_api.v1` для всех Copilot-видов). Новая версия представления — изменение этого
+   документа и перегенерация типов клиента, а не миграция данных.
+5. **Нет ложного `result_corrupted`.** Если `presentation.upcasters` пуст, `presentation.payload` — хранимый payload
+   дословно, и `sha256(canonical(presentation.payload)) == stored.payload_sha256` (клиент может это проверить).
+   После непустой цепочки хэши расходятся по построению: это не повреждение, клиент хэш не проверяет, а сервер
+   проверяет его по хранимой строке. Golden-пример — [`golden/snapshot-upcast-v1-to-v2.json`](fixtures/golden/snapshot-upcast-v1-to-v2.json).
+6. **В неизменяемых данных нет данных, зависящих от зрителя.** Автор хранится как `users.id`
+   (`author_user_id`); `is_self` и `display_name` вычисляются при ответе. Два участника видят один и тот же
+   snapshot с разным `author.is_self` — [`golden/snapshot-two-viewers.json`](fixtures/golden/snapshot-two-viewers.json).
+   То же правило для всех `UserRef` в API (`Project.created_by`, `Thread.created_by`, `UserMessage.author`, …):
+   это проекции, а не хранимые значения.
 
 Канонический JSON (совпадает с существующим `canonical()` в
 [serialization.py](https://github.com/Pickle-Pee/smm_ai_helper/blob/76b6c1b/app/orchestration_runtime/serialization.py#L51)):
 `json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)` → UTF-8 → `sha256` → hex.
+Хранимый payload — результат `model_dump(mode="json")` DTO ядра; DTO `copilot_api.v1` не содержат float
+(десятичные значения — строки), поэтому канонический вид воспроизводим из колонки `jsonb`.
 
 ### 11.2 Путь чтения: целостность отдельно от совместимости
 
 | Шаг | Проверка | При сбое | Код | `result_status` |
 |---|---|---|---|---|
-| 1. Целостность | пересчитать `sha256(canonical(payload))` | **повреждение данных**: алерт, карантин, не регенерировать | `503 result_corrupted` | `corrupted` |
-| 2. Формат | найти декодер по `(schema_version, result_kind)` | **несовместимость формата**, данные целы | `409 result_format_unsupported` | `format_unsupported` |
-| 3. Декодер и upcasters | замороженный декодер + цепочка `v1 → v2 → …` | **дефект кода**, данные не трогаются | `503 result_unreadable` | `unreadable` |
+| 1. Целостность | `sha256(canonical(хранимый payload)) == stored.payload_sha256` | **повреждение данных**: алерт, карантин, не регенерировать; декодер не запускается | `503 result_corrupted` | `corrupted` |
+| 2. Формат | найти декодер по `(stored.schema_version, result_kind)` | **несовместимость формата**, данные целы | `409 result_format_unsupported` | `format_unsupported` |
+| 3. Декодер и upcasters | замороженный декодер + цепочка `v1 → v2 → …` на копии | **дефект кода**, данные не трогаются | `503 result_unreadable` | `unreadable` |
+| 4. Проекция зрителя | `author` из `provenance.author_user_id` | — | — | — |
 
 - **Версионированные декодеры** — замороженные копии DTO на момент версии (например,
   `app/saas/history/contracts/copilot_api_v1.py`); после выпуска не редактируются. Старый snapshot никогда не
   валидируется живым DTO: изменение лимита или enum в `copilot_api.v1` иначе сделало бы корректные данные «невалидными».
-- **Upcasters** — чистые функции между версиями до текущего представления; применённая цепочка видна в `decoded_with`.
+- **Upcasters** — чистые функции `<from>-><to>/<result_kind>` до версии представления; применённая цепочка видна в
+  `presentation.upcasters`, декодер — в `presentation.decoder`.
 - **Drift-тест** в web-слое: JSON Schema живого `copilot_api.v1` сравнивается с закреплённым хэшем замороженной копии.
   Падение означает: ввести новую `schema_version`, upcaster и фикстуры. PR Codex он не блокирует.
 - В списке сообщений нечитаемый snapshot не роняет страницу: `result_status` + `result: null`.
@@ -526,31 +661,51 @@ Web-сессия на legacy-маршрутах и bot-токен на `/v2` д�
 | Выполняющийся workflow | `responses/message-workflow-running.200.json` |
 | Завершённая стратегия | `responses/message-strategy-completed.200.json` |
 | Ошибка генерации | `responses/message-run-failed.200.json`, `responses/message-run-blocked.200.json` |
-| Ambiguous execution | `responses/message-ambiguous.200.json` |
+| Ambiguous execution (записан ядром) | `responses/message-ambiguous.200.json` |
+| Выполняется дольше ожидаемого, исход не определён | `responses/message-running-overdue.200.json` |
 | Expired receipt | `responses/message-expired.200.json` |
-| Сохранённый snapshot | `responses/result-snapshot-run.200.json` |
+| Сохранённый snapshot (автор / другой участник) | `responses/result-snapshot-run.200.json`, `responses/result-snapshot-run.other-member.200.json` |
 | Восстановление истории | `responses/thread-messages-reopen.200.json`, `responses/message-pending-resubmit.200.json` |
 | Ошибка доступа | `errors/not-found-foreign-*.404.json`, `errors/forbidden.403.json` |
 | Неподдерживаемый сценарий | `responses/message-unsupported.200.json` |
-| Golden-негативы декодера | `golden/snapshot-corrupted-hash.json`, `golden/snapshot-unknown-schema-version.json` |
+| Rate limit и квота | `errors/rate-limited.429.json`, `errors/quota-exceeded.429.json` |
+| Golden: целостность и формат | `golden/snapshot-corrupted-hash.json`, `golden/snapshot-unknown-schema-version.json` |
+| Golden: upcast v1 → v2 | `golden/snapshot-upcast-v1-to-v2.json` |
+| Golden: два зрителя одного snapshot | `golden/snapshot-two-viewers.json` |
 
 `fixtures/index.json` связывает каждый файл с `operation_id`, HTTP-статусом и схемой; те же файлы подключены в OpenAPI
 как `examples.externalValue`.
+
+Golden-файлы описывают **строку `result_snapshots`** (`stored_row`, как в PostgreSQL), а не ответ API, и ожидаемый
+исход чтения. `snapshot-upcast-v1-to-v2.json` использует **гипотетическую** `copilot_api.v2` (переименование
+`cta` → `call_to_action`, обязательные `kind` и `limitations`) только для теста механизма: в backend и в OpenAPI
+её нет. Backend в B6 регистрирует этот upcaster в тестовом реестре и проверяет те же утверждения.
 
 ## 16. Как проверять реализацию по контракту
 
 | Проверка | Кто | Как |
 |---|---|---|
-| Спецификация валидна | оба | линтер OpenAPI 3.1 в CI соответствующего репозитория |
+| Спецификация валидна | оба | `tools/check_contract.py` (openapi-spec-validator, OpenAPI 3.1) + `@redocly/cli lint` |
 | Backend отдаёт то, что описано | Codex | `openapi.json` только для `/v2` как артефакт CI + сравнение с этим файлом; ответы тестов валидируются по схемам |
-| Frontend использует то, что описано | Claude | типы генерируются из YAML (`lib/api/generated/`), drift-проверка в CI; mock-адаптер отдаёт файлы из `fixtures/` |
-| Фикстуры не расходятся со схемами | оба | каждый файл из `index.json` валидируется по своей `schema` |
-| Snapshots читаемы | Codex | golden-тесты: `responses/result-snapshot-run.200.json` декодируется; два файла `golden/` дают `result_corrupted` и `result_format_unsupported` |
-| Идемпотентность | Codex | fake provider со счётчиком: replay, двойной клик, reload → 0 дополнительных вызовов |
+| Frontend использует то, что описано | Claude | типы генерируются из YAML (`openapi-typescript`, `lib/api/generated/`), drift-проверка в CI; mock-адаптер отдаёт файлы из `fixtures/` |
+| Фикстуры не расходятся со схемами | оба | каждый файл из `index.json` и каждый `externalValue` валидируется по своей схеме |
+| Приватные ответы не кешируются | оба | у каждого ответа каждой операции `Cache-Control: private, no-store`; backend-тест проверяет заголовок на 2xx и ошибках; F4 smoke — через edge |
+| Snapshots читаемы | Codex | golden-тесты: identity-snapshot декодируется; `golden/` дают `result_corrupted`, `result_format_unsupported`, корректный upcast v1 → v2 без ложного `result_corrupted`, одинаковое содержимое для двух зрителей |
+| Идемпотентность | Codex | fake provider со счётчиком: replay, двойной клик, reload, `running_overdue`, `503` при чтении → 0 дополнительных вызовов и 0 новых ключей |
 | Изоляция тенантов | Codex | T1–T10 и O-T1–O-T5 из аудита |
 
-Что проверено в рамках C0 — в описании PR. Новые зависимости не устанавливались; в CI этого репозитория проверки
-контракта пока не добавлены (это часть F1).
+Запуск проверок (docs-only, зависимости ставятся во временное окружение, в `package.json` ничего не добавляется):
+
+```bash
+python -m venv .venv-contract && .venv-contract/bin/pip install -r docs/api/tools/requirements.txt
+.venv-contract/bin/python docs/api/tools/check_contract.py --backend-repo ../smm_ai_helper --backend-ref 76b6c1b
+npx --yes openapi-typescript@7.13.0 docs/api/web-api-v2.openapi.yaml -o /tmp/web-api-v2.d.ts
+npx --yes -p typescript@5.9.3 tsc --noEmit --strict /tmp/web-api-v2.d.ts
+npx --yes @redocly/cli@2.11.1 lint docs/api/web-api-v2.openapi.yaml
+```
+
+`--backend-repo` читает backend только через `git show <ref>:…` (ничего не меняет) и сверяет existing-DTO и все
+payload фикстур с реальными Pydantic-моделями. Подключение этих шагов к CI — часть F1, в этот PR не входит.
 
 ## 17. Версионирование и эволюция
 
@@ -560,7 +715,9 @@ Web-сессия на legacy-маршрутах и bot-токен на `/v2` д�
 - **Совместимые** изменения: новая операция, новое необязательное поле ответа, новый код ошибки с описанием в каталоге,
   новое значение `result_kind` вместе с декодером. Клиент обязан терпеть неизвестные коды `NeedsInputResponse.code`.
 - **Несовместимые** изменения (удаление или переименование поля, смена типа, смена смысла кода) — только `/v3`.
-- Изменение DTO ядра не меняет старые snapshots: вводится новая `schema_version` + декодер + upcaster.
+- Изменение DTO ядра не меняет старые snapshots: вводится новая хранимая `schema_version` + замороженный декодер +
+  upcaster. Новая версия **представления** (`presentation.schema_version`) — изменение этого документа с
+  перегенерацией типов клиента; хранимые строки при этом не переписываются.
 
 | Этап | Что добавляется | Статус в этом документе |
 |---|---|---|
@@ -582,6 +739,6 @@ Web-сессия на legacy-маршрутах и bot-токен на `/v2` д�
 | owner-id варианты `GraphRunReader.get/recent` | делегированное чтение | B3c |
 | owner-id вариант `CaseMentorService._source` | наставник для web | B3b |
 | owner-id вариант `ProjectHistoryService` | личная Telegram-история | B11 |
-| read-only `peek` состояния receipt (или вывод по времени) | различать `running` и `ambiguous` | новое, C0-7 |
+| read-only `ExecutionStore.peek(owner, key)` (§10.3); вывод по времени исключён | различать `running` и `ambiguous` без побочных эффектов | новое, C0-7 / OQ-9 |
 
 Web-слой (`/v2`, web-таблицы, материализация, декодеры) — новые модули; существующие таблицы ядра не меняются.

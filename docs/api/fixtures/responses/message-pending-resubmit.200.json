@@ -5,6 +5,7 @@
   "state": "pending",
   "next_action": "resubmit_same_key",
   "poll_after_ms": null,
+  "running_overdue": false,
   "user_message": {
     "id": "5ff09592-5f83-5b09-876a-c28f75064d7a",
     "thread_id": "9ee9f40b-1ec5-5660-a9d4-df8471c40627",

@@ -5,6 +5,7 @@
   "state": "expired",
   "next_action": "start_new_request",
   "poll_after_ms": null,
+  "running_overdue": false,
   "user_message": {
     "id": "ab834419-022d-51ca-be1a-33e9c1f9dd56",
     "thread_id": "600e47c6-40b2-5f64-b626-0c893bf4ad86",
