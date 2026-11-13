@@ -927,8 +927,10 @@ paths:
         `owner = principal.user_id` and the brand of the thread's project; the DTO has no owner field.
 
         **Idempotency.** `(principal, request_key, revision)` identifies the request.
-        * Same key, same revision, same payload: replay. The stored state is returned, the core is not
-          asked to generate again. Replaying a still-running request returns its current state.
+        * Same key, same revision, same payload: replay of a known receipt/snapshot. If the core receipt
+          is absent, re-admission is allowed only for a `pending` message younger than the 7-day recovery
+          window, after read-only status verification; older missing receipts NEVER authorize regeneration.
+          Replaying a still-running request returns its current state.
         * Same key, same revision, different payload: `409 request_conflict`.
         * Key already used in another thread: `409 request_conflict`.
         * `revision = n + 1` is accepted only if revision `n` is the latest and ended in `needs_input`, and
@@ -1050,10 +1052,12 @@ paths:
         Recovery entry point when the response of `submitMessage` was lost (network error, timeout, reload,
         `503`). Returns the LATEST revision stored for this key, scoped to `created_by = principal`.
 
-        * `404 not_found` - the server never stored this key for the caller in this thread (or the thread is
-          not readable). The client may submit the identical request again with the same key.
-        * `200` - follow `next_action`. `resubmit_same_key` means the message was stored but the core never
-          admitted it; resubmitting the identical payload is safe because the core claim admits a key once.
+        * `404 not_found` - there is no caller-visible web row for this key (or the thread is not readable).
+          This is NOT proof that the core never ran: a deleted web row or an expired receipt may hide it.
+          Do not blindly resubmit. Recovery is allowed only within the bounded safe admission window below,
+          with the same key and original payload; web key tombstones survive result/thread deletion.
+        * `200` - follow `next_action`. `resubmit_same_key` is returned ONLY for a recent `pending`
+          message after a successful read-only `peek` confirmed no receipt. Revalidate the predicate on POST.
         * `503 temporarily_unavailable` - the status could not be read reliably. Nothing changed; re-read
           after `Retry-After` with the same key.
 
@@ -1069,9 +1073,17 @@ paths:
         | `completed` / `needs_input` | `completed` / `needs_input` | replay through the existing `ExecutionStore.get`, idempotent snapshot insert |
         | `running` | `running` (+ `running_overdue` when past the window) | none |
         | `ambiguous` | `ambiguous` | web state set to `ambiguous` (the only path to it) |
-        | absent, web state `pending` | `pending` + `resubmit_same_key` | none |
-        | absent, receipt past retention | `expired` (`receipt_expired`) | none |
+        | absent + web `pending`, created_at younger than 7d | `pending` + `resubmit_same_key` | safe same-key retry permitted, rechecked on POST |
+        | absent + old web `pending` (at least 7d) | `expired` (`recovery_window_elapsed`) | no retry; prior execution may have happened |
+        | absent + previously `running` | `503` or `expired` after recovery window | never regenerate |
         | `peek` fails / not deployed | - | `503 temporarily_unavailable`, web state unchanged |
+
+        The safe admission predicate is: a reliable `peek` returned absent, the immutable server-side
+        `thread_messages.created_at` proves `0 <= age < 7 days`, and the web request is still `pending`.
+        Seven days is strictly shorter than the core receipt retention (30 days); the predicate is checked
+        again inside the POST admission transaction. After the window closes no `resubmit_same_key` is issued,
+        even if the same key once produced a completed result whose receipt has now been purged. Missing
+        status/clock/retention guarantees yield 503 and NO model call. See README §10.4 and golden fixture.
 
         `ambiguous` is NEVER derived from elapsed time, a hung request or a missing heartbeat. If the
         snapshot insert fails, its transaction is rolled back, nothing else changed, and the response is
@@ -2177,7 +2189,7 @@ components:
 
         | state | meaning | durable result |
         | --- | --- | --- |
-        | `pending` | Stored by the web layer; the core has no receipt for this key (verified absent). | no |
+        | `pending` | Stored web request with no core receipt (verified absent) within the 7-day safe retry window. | no |
         | `running` | The core reports the receipt or graph run as running. Stays `running` however long it takes; age is surfaced only as the hint `MessageResult.running_overdue`. | no |
         | `needs_input` | Core asked for clarification. Terminal for THIS revision; answer with revision + 1 and the same key. | `NEEDS_INPUT` |
         | `completed` | Finished. | `DIRECT_RESULT`, `MODULE_RESULT` or `RUN` |
@@ -2185,7 +2197,7 @@ components:
         | `blocked` | Workflow needs context or an accessible source. | `RUN` with `failure` |
         | `failed` | Workflow failed. | `RUN` with `failure` |
         | `ambiguous` | The core receipt itself recorded an unknown outcome (core status `ambiguous`, read through the read-only `ExecutionStore.peek`). NEVER inferred from elapsed time. Never re-executed automatically. | none |
-        | `expired` | No result exists and none can be obtained under this key (verified: receipt absent or past retention, no snapshot). Never regenerated. | none |
+        | `expired` | No retrievable result under this key (receipt absent, no snapshot, retry window closed); prior model execution cannot be ruled out. Never regenerated. | none |
         | `unsupported` | The core classified the request as free conversation and web chat is disabled. | `UNSUPPORTED` |
 
         "Temporarily unavailable" is deliberately NOT a state: when the server cannot read the core status
@@ -2198,14 +2210,14 @@ components:
     StateReason:
       x-status: proposed
       description: |
-        Detail for `expired`. `receipt_expired` - the core receipt passed its 30-day retention before the
-        result was materialized. `never_admitted` - the message was stored, `ExecutionStore.peek` verified
-        that the core holds NO receipt for the key (so no model call happened), the admission window passed,
-        and the web layer closed the key (conditional update `pending -> expired`; later submits of that key
-        are refused by the web layer before the core is called). Elapsed time alone never closes a key the
-        core has admitted.
+        Detail for `expired`. `receipt_expired` - the core receipt passed its 30-day retention before a
+        result snapshot could be materialized. `recovery_window_elapsed` - a pending web request is older
+        than the seven-day safe recovery window and `peek` returned absent. This does NOT prove whether a
+        model call happened; the same key is fenced against re-admission by the web layer. `never_admitted`
+        is reserved for an explicit durable pre-claim abort record, NOT inferred from missing receipt or age.
+        The window uses the immutable server-side `thread_messages.created_at` and never resets on refresh.
       type: [string, 'null']
-      enum: [receipt_expired, never_admitted, null]
+      enum: [receipt_expired, recovery_window_elapsed, never_admitted, null]
 
     NextAction:
       x-status: proposed
@@ -2214,7 +2226,9 @@ components:
 
         * `none` - nothing to do.
         * `poll` - call `getMessage` again after `poll_after_ms`.
-        * `resubmit_same_key` - author only: repeat the identical `submitMessage` (same key, revision, payload).
+        * `resubmit_same_key` - author only, and ONLY while the web `pending` request is under 7 days old,
+          after a successful `peek` found no receipt; POST rechecks before calling the core. Never use for
+          an expired receipt.
         * `answer_clarification` - author only: submit revision + 1 with the same key and added context.
         * `start_new_request` - nothing more can happen under this key. A new request needs a NEW key and an
           explicit user action, with a visible note that it may generate again.
