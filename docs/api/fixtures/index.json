@@ -168,6 +168,12 @@
       "schema": "#/components/schemas/ErrorResponse"
     },
     {
+      "file": "golden/pending-receipt-purged.json",
+      "type": "golden",
+      "title": "Regression: old pending after completed receipt purge must not resubmit; fresh pending with verified absent receipt may resubmit",
+      "notes": "3 deterministic cases including strict 7-day boundary. Recovery GET never calls core/model; expired recovery has no same-key re-admission."
+    },
+    {
       "file": "golden/snapshot-corrupted-hash.json",
       "type": "golden",
       "title": "Повреждённая сохранённая строка: payload изменён после вычисления хэша",
