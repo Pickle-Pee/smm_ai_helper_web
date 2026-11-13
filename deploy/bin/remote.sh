@@ -22,7 +22,7 @@ mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/lock"
 flock -n 9 || { echo "another deploy is running" >&2; exit 75; }
 
-log() { local msg="[$(date -u +%FT%TZ)] $*"; echo "$msg"; echo "$msg" >>"$STATE_DIR/deploy.log"; logger -t brenvio-deploy -- "$*" 2>/dev/null || true; }
+log() { local msg; msg="[$(date -u +%FT%TZ)] $*"; echo "$msg"; echo "$msg" >>"$STATE_DIR/deploy.log"; logger -t brenvio-deploy -- "$*" 2>/dev/null || true; }
 die() { log "ERROR: $*"; exit 1; }
 
 valid_tag() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }
