@@ -265,6 +265,31 @@ q = load_json("errors/quota-exceeded.429.json")
 check("quota fixture: Retry-After beyond one hour is valid", q["retry_after_seconds"] > 3600 and q["quota"] is not None)
 
 # 10. Golden cases ---------------------------------------------------------------------------------
+
+# P1: receipt status None can mean "never admitted" OR "completed and purged".
+# This is a contract-level predicate, not a simulator for the runtime executor.
+from datetime import datetime  # noqa: E402
+
+recovery = load_json("golden/pending-receipt-purged.json")
+retention_days = recovery["receipt_retention_days"]
+safe_days = recovery["safe_pending_retry_days"]
+check("pending retry window is strictly shorter than core retention",
+      0 < safe_days < retention_days, (safe_days, retention_days))
+for case in recovery["cases"]:
+    created = datetime.fromisoformat(case["created_at"].replace("Z", "+00:00"))
+    current = datetime.fromisoformat(case["read_at"].replace("Z", "+00:00"))
+    age_seconds = (current - created).total_seconds()
+    safe = (case["web_state"] == "pending" and case["peek_status"] is None
+            and 0 <= age_seconds < safe_days * 86400)
+    outcome = ({"state": "pending", "state_reason": None, "next_action": "resubmit_same_key",
+                "same_key_resubmit_permitted": True, "core_calls_during_read": 0}
+               if safe else
+               {"state": "expired", "state_reason": "recovery_window_elapsed",
+                "next_action": "start_new_request", "same_key_resubmit_permitted": False,
+                "core_calls_during_read": 0})
+    check(f"golden receipt-purge recovery: {case['name']}",
+          outcome == case["expected"], {"expected": case["expected"], "actual": outcome})
+
 def integrity_ok(row):
     return sha(row["payload"]) == row["payload_sha256"]
 
