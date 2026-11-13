@@ -1,0 +1,156 @@
+{
+  "golden": "snapshot-upcast-v1-to-v2",
+  "hypothetical": true,
+  "description": "Golden-пример цепочки upcasters. copilot_api.v2 — ГИПОТЕТИЧЕСКАЯ версия только для теста механизма: в backend её нет, в OpenAPI она не объявлена. Сохранённая строка v1 не меняется; хэш проверяется по ней; представление v2 имеет другой хэш, и это НЕ result_corrupted.",
+  "stored_row": {
+    "id": "620f3ff0-1569-5729-b32d-2743b2ae1f7c",
+    "message_id": "e8ab996f-c0d4-5da0-9212-d51b7f352e5e",
+    "org_id": "4330aee2-f521-5eb1-8c02-44eba4a7a708",
+    "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+    "envelope_version": 1,
+    "result_kind": "MODULE_RESULT",
+    "schema_version": "copilot_api.v1",
+    "writer_version": "0.0.0-fixture",
+    "payload_sha256": "86239883cd55f3b497e457b0c5c9cbd8fd9c9f19999ae9715adb4ac8b6a70030",
+    "author_user_id": 42,
+    "source_kind": "receipt",
+    "run_id": null,
+    "request_key": "w-0193a4f2-0003-7a03-8c03-000000000003",
+    "revision": 1,
+    "source_completed_at": "2026-11-20T11:00:41Z",
+    "materialized_at": "2026-11-20T11:00:41Z",
+    "payload": {
+      "schema_version": "copilot_api.v1",
+      "owned_site": null,
+      "kind": "MODULE_RESULT",
+      "result": {
+        "kind": "post",
+        "headline": "Осень в чашке: три новых напитка",
+        "body": "Мы обжарили свежую партию зерна и собрали на её основе три осенних напитка. Загляните попробовать, пока партия свежая.",
+        "cta": "Приходите на этой неделе — расскажем о каждом напитке.",
+        "limitations": [
+          "Состав и цены напитков в запросе не указаны, поэтому в тексте их нет."
+        ]
+      }
+    }
+  },
+  "upcaster": {
+    "id": "copilot_api.v1->copilot_api.v2/MODULE_RESULT",
+    "pure": true,
+    "rules": [
+      "schema_version: copilot_api.v1 -> copilot_api.v2",
+      "result.cta -> result.call_to_action (переименование)",
+      "result.kind: отсутствует -> 'post' (если result — Post)",
+      "result.limitations: отсутствует -> []"
+    ]
+  },
+  "hypothetical_target_schema": {
+    "$comment": "JSON Schema гипотетического copilot_api.v2 ModuleResponse (только вариант Post) для проверки golden-примера.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "kind",
+      "result"
+    ],
+    "properties": {
+      "schema_version": {
+        "const": "copilot_api.v2"
+      },
+      "owned_site": {
+        "type": "null"
+      },
+      "kind": {
+        "const": "MODULE_RESULT"
+      },
+      "result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "headline",
+          "body",
+          "call_to_action",
+          "limitations"
+        ],
+        "properties": {
+          "kind": {
+            "const": "post"
+          },
+          "headline": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "call_to_action": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "limitations": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 4000
+            }
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "integrity": "ok",
+    "result_status": "available",
+    "stored_row_unchanged": true,
+    "presentation_hash_differs_from_stored": true,
+    "response": {
+      "id": "620f3ff0-1569-5729-b32d-2743b2ae1f7c",
+      "message_id": "e8ab996f-c0d4-5da0-9212-d51b7f352e5e",
+      "envelope_version": 1,
+      "result_kind": "MODULE_RESULT",
+      "stored": {
+        "schema_version": "copilot_api.v1",
+        "payload_sha256": "86239883cd55f3b497e457b0c5c9cbd8fd9c9f19999ae9715adb4ac8b6a70030",
+        "writer_version": "0.0.0-fixture"
+      },
+      "provenance": {
+        "source_kind": "receipt",
+        "run_id": null,
+        "request_key": "w-0193a4f2-0003-7a03-8c03-000000000003",
+        "revision": 1,
+        "author_user_id": 42,
+        "source_completed_at": "2026-11-20T11:00:41Z",
+        "materialized_at": "2026-11-20T11:00:41Z"
+      },
+      "author": {
+        "id": 42,
+        "display_name": "Мария",
+        "is_self": true
+      },
+      "presentation": {
+        "schema_version": "copilot_api.v2",
+        "decoder": "copilot_api.v1/MODULE_RESULT",
+        "upcasters": [
+          "copilot_api.v1->copilot_api.v2/MODULE_RESULT"
+        ],
+        "payload": {
+          "schema_version": "copilot_api.v2",
+          "owned_site": null,
+          "kind": "MODULE_RESULT",
+          "result": {
+            "kind": "post",
+            "headline": "Осень в чашке: три новых напитка",
+            "body": "Мы обжарили свежую партию зерна и собрали на её основе три осенних напитка. Загляните попробовать, пока партия свежая.",
+            "call_to_action": "Приходите на этой неделе — расскажем о каждом напитке.",
+            "limitations": [
+              "Состав и цены напитков в запросе не указаны, поэтому в тексте их нет."
+            ]
+          }
+        }
+      }
+    }
+  }
+}

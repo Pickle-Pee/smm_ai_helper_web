@@ -1,0 +1,77 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "e5240146-8237-5bfb-aba1-744f1b5ee729",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "unsupported",
+  "next_action": "none",
+  "poll_after_ms": null,
+  "running_overdue": false,
+  "user_message": {
+    "id": "a7e26dcf-6d73-58ec-8c17-28cfedef8bf5",
+    "thread_id": "e5240146-8237-5bfb-aba1-744f1b5ee729",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-20T12:00:01Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0005-7a05-8c05-000000000005",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Привет! Расскажи, что ты умеешь",
+    "input": {
+      "message": "Привет! Расскажи, что ты умеешь"
+    },
+    "state": "unsupported",
+    "state_reason": null
+  },
+  "assistant_message": {
+    "id": "0b6db6dc-910b-5935-b15f-a40262ff0d02",
+    "thread_id": "e5240146-8237-5bfb-aba1-744f1b5ee729",
+    "seq": 2,
+    "role": "assistant",
+    "created_at": "2026-11-20T12:00:04Z",
+    "reply_to": "a7e26dcf-6d73-58ec-8c17-28cfedef8bf5",
+    "request_key": "w-0193a4f2-0005-7a05-8c05-000000000005",
+    "revision": 1,
+    "result_status": "available",
+    "result": {
+      "id": "05e2943d-9b4a-58f2-ad47-1ec07ccaaa89",
+      "message_id": "0b6db6dc-910b-5935-b15f-a40262ff0d02",
+      "envelope_version": 1,
+      "result_kind": "UNSUPPORTED",
+      "stored": {
+        "schema_version": "web_api.v2",
+        "payload_sha256": "c202ff7ece2cf76dfa3c08f01995d825058a8db2ceb22571377319c69f2b32f3",
+        "writer_version": "0.0.0-fixture"
+      },
+      "provenance": {
+        "source_kind": "receipt",
+        "run_id": null,
+        "request_key": "w-0193a4f2-0005-7a05-8c05-000000000005",
+        "revision": 1,
+        "author_user_id": 42,
+        "source_completed_at": "2026-11-20T12:00:04Z",
+        "materialized_at": "2026-11-20T12:00:04Z"
+      },
+      "author": {
+        "id": 42,
+        "display_name": "Мария",
+        "is_self": true
+      },
+      "presentation": {
+        "schema_version": "web_api.v2",
+        "decoder": "web_api.v2/UNSUPPORTED",
+        "upcasters": [],
+        "payload": {
+          "schema_version": "web_api.v2",
+          "kind": "UNSUPPORTED",
+          "reason": "conversation_not_available"
+        }
+      }
+    }
+  },
+  "live_run": null
+}

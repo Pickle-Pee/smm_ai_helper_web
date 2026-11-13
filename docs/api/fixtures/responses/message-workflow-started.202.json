@@ -1,0 +1,42 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "55a62753-5145-5087-b4b9-a620d5442cd0",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "running",
+  "next_action": "poll",
+  "poll_after_ms": 2000,
+  "running_overdue": false,
+  "user_message": {
+    "id": "74ca17a0-458c-5ed6-bc8f-cc91b405db85",
+    "thread_id": "55a62753-5145-5087-b4b9-a620d5442cd0",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-20T09:15:02Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0001-7a01-8c01-000000000001",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Разработай стратегию продвижения кофейни на ближайший квартал",
+    "input": {
+      "message": "Разработай стратегию продвижения кофейни на ближайший квартал",
+      "context": {
+        "business_goal": "Увеличить долю постоянных гостей",
+        "product_truth": "Зерно обжаривается каждую неделю, есть продажа зерна навынос",
+        "customer_job_or_need": "Быстро взять хороший кофе рядом с домом и поработать в тишине",
+        "relevant_alternative": "Сетевая кофейня в соседнем доме",
+        "economics": "Средний чек 450 ₽"
+      },
+      "competitor_urls": [
+        "https://competitor.example/"
+      ]
+    },
+    "state": "running",
+    "state_reason": null
+  },
+  "assistant_message": null,
+  "live_run": null
+}

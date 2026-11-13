@@ -1,0 +1,8 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "result_gone",
+  "request_id": "req_fixture_0017",
+  "retry_after_seconds": null,
+  "owned_site": null
+}

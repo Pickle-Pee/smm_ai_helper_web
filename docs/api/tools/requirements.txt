@@ -1,0 +1,7 @@
+# Docs-only contract checker (docs/api/tools/check_contract.py). Not an app dependency;
+# install into a throwaway virtualenv. pydantic is needed only with --backend-repo.
+openapi-spec-validator==0.8.4
+jsonschema==4.24.1
+rfc3339-validator==0.1.4
+PyYAML==6.0.3
+pydantic==2.13.5

@@ -1,0 +1,8 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "result_format_unsupported",
+  "request_id": "req_fixture_0016",
+  "retry_after_seconds": null,
+  "owned_site": null
+}

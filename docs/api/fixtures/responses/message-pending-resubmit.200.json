@@ -1,0 +1,38 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "9ee9f40b-1ec5-5660-a9d4-df8471c40627",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "pending",
+  "next_action": "resubmit_same_key",
+  "poll_after_ms": null,
+  "running_overdue": false,
+  "user_message": {
+    "id": "5ff09592-5f83-5b09-876a-c28f75064d7a",
+    "thread_id": "9ee9f40b-1ec5-5660-a9d4-df8471c40627",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-23T09:00:02Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-000a-7a0a-8c0a-00000000000a",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Проанализируй рынок кофеен в районе",
+    "input": {
+      "message": "Проанализируй рынок кофеен в районе",
+      "market_sources": [
+        {
+          "title": "Заметки владельца",
+          "excerpt": "В радиусе километра работают четыре кофейни."
+        }
+      ]
+    },
+    "state": "pending",
+    "state_reason": null
+  },
+  "assistant_message": null,
+  "live_run": null
+}

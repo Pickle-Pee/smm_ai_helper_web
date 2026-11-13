@@ -1,0 +1,40 @@
+{
+  "schema_version": "web_api.v2",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "version": 3,
+  "brand_name": "Зерно",
+  "product_description": "Кофейня у дома со свежей обжаркой и продажей зерна навынос",
+  "audience": "Жители района 25–40 лет, часть работает удалённо",
+  "tone": "Тёплый, разговорный, без канцелярита",
+  "goals": [
+    "Увеличить число постоянных гостей",
+    "Запустить продажу зерна навынос"
+  ],
+  "channels": [
+    "ВКонтакте",
+    "Telegram"
+  ],
+  "extra": {
+    "industry": "Общественное питание",
+    "usp": "Обжариваем зерно каждую неделю небольшими партиями",
+    "competitors": [
+      "Сетевая кофейня в соседнем доме"
+    ],
+    "geography": "Екатеринбург, один жилой район"
+  },
+  "imported_from": {
+    "source": "telegram_brand_profile",
+    "imported_at": "2026-11-20T09:00:05Z",
+    "imported_by": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    }
+  },
+  "updated_at": "2026-11-20T09:08:41Z",
+  "updated_by": {
+    "id": 42,
+    "display_name": "Мария",
+    "is_self": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "18b2fc5e-2f34-5faf-9698-f311e21c03cd",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "ambiguous",
+  "next_action": "start_new_request",
+  "poll_after_ms": null,
+  "running_overdue": false,
+  "user_message": {
+    "id": "ee7769d3-e401-5557-be85-1ebb0cc9291e",
+    "thread_id": "18b2fc5e-2f34-5faf-9698-f311e21c03cd",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-21T08:00:03Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0006-7a06-8c06-000000000006",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Проанализируй конкурента",
+    "input": {
+      "message": "Проанализируй конкурента",
+      "competitor_urls": [
+        "https://competitor.example/"
+      ]
+    },
+    "state": "ambiguous",
+    "state_reason": null
+  },
+  "assistant_message": null,
+  "live_run": null
+}

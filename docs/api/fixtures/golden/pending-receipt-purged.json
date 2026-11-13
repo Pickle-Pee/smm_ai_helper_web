@@ -1,0 +1,54 @@
+{
+  "golden": "pending-receipt-purged",
+  "description": "P1 regression: absence of a 30-day receipt cannot distinguish never-admitted from completed-then-purged. Only a fresh web pending row with trusted created_at and successful peek(None) can be resubmitted under the SAME key. A read never invokes the model.",
+  "receipt_retention_days": 30,
+  "safe_pending_retry_days": 7,
+  "source_of_truth": "Immutable server-generated thread_messages.created_at; core ExecutionStore.peek(owner,key), never client-supplied timestamps or age-based inference of ambiguous.",
+  "cases": [
+    {
+      "name": "completed-receipt-purged-at-day-31",
+      "created_at": "2026-10-13T09:00:00Z",
+      "read_at": "2026-11-13T09:00:00Z",
+      "web_state": "pending",
+      "peek_status": null,
+      "history": "Core completed once and its receipt was purged after the 30-day retention; web TX2 crashed before durable snapshot",
+      "expected": {
+        "state": "expired",
+        "state_reason": "recovery_window_elapsed",
+        "next_action": "start_new_request",
+        "same_key_resubmit_permitted": false,
+        "core_calls_during_read": 0
+      }
+    },
+    {
+      "name": "fresh-pending-with-verified-no-receipt",
+      "created_at": "2026-11-13T21:30:00Z",
+      "read_at": "2026-11-13T21:34:00Z",
+      "web_state": "pending",
+      "peek_status": null,
+      "history": "Web stored request; core claim has not happened",
+      "expected": {
+        "state": "pending",
+        "state_reason": null,
+        "next_action": "resubmit_same_key",
+        "same_key_resubmit_permitted": true,
+        "core_calls_during_read": 0
+      }
+    },
+    {
+      "name": "pending-exactly-at-seven-day-boundary",
+      "created_at": "2026-11-06T21:30:00Z",
+      "read_at": "2026-11-13T21:30:00Z",
+      "web_state": "pending",
+      "peek_status": null,
+      "history": "At retry window boundary, do not assume this execution never occurred",
+      "expected": {
+        "state": "expired",
+        "state_reason": "recovery_window_elapsed",
+        "next_action": "start_new_request",
+        "same_key_resubmit_permitted": false,
+        "core_calls_during_read": 0
+      }
+    }
+  ]
+}
