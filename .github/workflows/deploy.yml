@@ -1,0 +1,102 @@
+name: Deploy preview
+
+# Production deploys run only from `main` (after review and merge) or manually.
+# Disabled until the repository variable DEPLOY_ENABLED is "true" and secrets are configured
+# (see docs/operations.md, "CI/CD setup").
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy | rollback | status
+        type: choice
+        options: [deploy, rollback, status]
+        default: deploy
+      rollback_tag:
+        description: Tag for rollback (empty = previous release)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SITE_URL: ${{ vars.SITE_URL || 'https://app.24rubridge.ru' }}
+  DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # GitHub environment: add required reviewers there for an extra approval gate.
+    environment:
+      name: production
+      url: ${{ vars.SITE_URL || 'https://app.24rubridge.ru' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS" && test -n "$HOST" || { echo "Deploy secrets are missing"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host target\n  HostName %s\n  Port %s\n  User brenvio-deploy\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' "$HOST" "$DEPLOY_PORT" > ~/.ssh/config
+
+      - name: Status / rollback
+        if: github.event_name == 'workflow_dispatch' && inputs.action != 'deploy'
+        run: |
+          if [ "${{ inputs.action }}" = rollback ]; then ssh target "rollback ${{ inputs.rollback_tag }}"; fi
+          ssh target status
+
+      # ---- deploy path ----
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Checks
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        run: npm ci --no-audit --no-fund && npm run lint && npm test
+      - uses: docker/setup-buildx-action@v3
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+      - name: Build image
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        id: build
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          docker buildx build --load -t "brenvio-web:$TAG" \
+            --build-arg SITE_URL="$SITE_URL" --build-arg APP_VERSION="$TAG" .
+      - name: Pre-deploy smoke test (local container)
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        run: |
+          docker run -d --name web -p 127.0.0.1:3100:3000 --init --read-only --tmpfs /tmp \
+            --tmpfs /app/.next/cache:uid=1001,gid=1001 --cap-drop ALL "brenvio-web:${{ steps.build.outputs.tag }}"
+          for i in $(seq 1 40); do [ "$(docker inspect -f '{{.State.Health.Status}}' web)" = healthy ] && break; sleep 3; done
+          bash scripts/smoke.sh http://127.0.0.1:3100 "${{ steps.build.outputs.tag }}"
+          docker rm -f web
+      - name: Ship image and deploy
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        id: ship
+        run: |
+          docker save "brenvio-web:${{ steps.build.outputs.tag }}" | gzip -1 | ssh target "deploy ${{ steps.build.outputs.tag }}"
+      - name: Public smoke test
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        run: |
+          sleep 5
+          bash scripts/smoke.sh "$SITE_URL" "${{ steps.build.outputs.tag }}"
+      # The server already rolls back by itself when the new container is unhealthy;
+      # this covers a healthy container that fails the public smoke test.
+      - name: Roll back on failed public smoke test
+        if: failure() && steps.ship.outcome == 'success'
+        run: ssh target rollback || true

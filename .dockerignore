@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+.next
+node_modules
+coverage
+docs/screenshots
+deploy
+**/*.test.ts
+**/*.test.tsx
+*.log
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
