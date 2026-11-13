@@ -1,0 +1,212 @@
+/*
+ * SMM AI Helper — design tokens v1.
+ * Primitive scales first, semantic aliases second. Components use semantic tokens only.
+ * See docs/design-system.md for rationale and contrast notes.
+ */
+:root {
+  color-scheme: light;
+
+  /* ---------- Primitive: navy (brand foundation) ---------- */
+  --navy-950: #0a1424;
+  --navy-900: #0f1c30;
+  --navy-800: #15253d;
+  --navy-700: #1f3250;
+  --navy-600: #2c4366;
+  --navy-500: #42597e;
+  --navy-400: #6b80a3;
+  --navy-300: #95a6c2;
+  --navy-200: #bac6da;
+  --navy-100: #dde4ef;
+
+  /* ---------- Primitive: teal (human action, progress) ---------- */
+  --teal-800: #085a57;
+  --teal-700: #0a6e6a;
+  --teal-600: #0b7f7a;
+  --teal-500: #19b6ae;
+  --teal-400: #3fcac2;
+  --teal-200: #9fe6e1;
+  --teal-100: #d2f4f1;
+  --teal-50: #ebfaf8;
+
+  /* ---------- Primitive: violet (AI) ---------- */
+  --violet-800: #3d3394;
+  --violet-700: #4b3fb0;
+  --violet-600: #5f52d0;
+  --violet-500: #7568df;
+  --violet-300: #b2a9f1;
+  --violet-200: #d2ccf8;
+  --violet-100: #e7e4fc;
+  --violet-50: #f4f2fe;
+
+  /* ---------- Primitive: cool gray ---------- */
+  --gray-0: #ffffff;
+  --gray-25: #f9fafc;
+  --gray-50: #f3f5f9;
+  --gray-100: #eaeef4;
+  --gray-200: #dde3eb;
+  --gray-300: #c7d0dc;
+  --gray-400: #9aa6b8;
+  --gray-500: #5f6c82;
+  --gray-600: #55637a;
+  --gray-700: #3b4859;
+
+  /* ---------- Primitive: status ---------- */
+  --amber-700: #8f5300;
+  --amber-100: #fdecc8;
+  --amber-50: #fff7e6;
+  --red-700: #b42339;
+  --red-100: #f9d3d9;
+  --red-50: #fdeff1;
+  --blue-700: #2a55b8;
+  --blue-50: #eef3fd;
+
+  /* ---------- Semantic: surfaces ---------- */
+  --color-canvas: var(--gray-50);
+  --color-surface: var(--gray-0);
+  --color-surface-muted: var(--gray-25);
+  --color-surface-sunken: var(--gray-100);
+  --color-surface-hover: #f1f4f8;
+  --color-border: var(--gray-200);
+  --color-border-strong: var(--gray-300);
+  --color-overlay: rgb(10 20 36 / 0.48);
+
+  /* ---------- Semantic: text ---------- */
+  --color-text: var(--navy-800);
+  --color-text-secondary: var(--gray-600);
+  --color-text-muted: var(--gray-500);
+  --color-text-disabled: var(--gray-400);
+  --color-text-inverse: #ffffff;
+  --color-icon: #6f7c91;
+
+  /* ---------- Semantic: accent (human) ---------- */
+  --color-accent: var(--teal-500);
+  --color-accent-hover: #14a69f;
+  --color-accent-on: var(--navy-900);
+  --color-accent-text: var(--teal-700);
+  --color-accent-soft: var(--teal-50);
+  --color-accent-border: var(--teal-200);
+
+  /* ---------- Semantic: AI ---------- */
+  --color-ai: var(--violet-500);
+  --color-ai-strong: var(--violet-600);
+  --color-ai-hover: var(--violet-700);
+  --color-ai-text: var(--violet-600);
+  --color-ai-soft: var(--violet-50);
+  --color-ai-border: var(--violet-200);
+
+  /* ---------- Semantic: status ---------- */
+  --color-success-text: var(--teal-700);
+  --color-success-bg: var(--teal-50);
+  --color-success-border: var(--teal-200);
+  --color-warning-text: var(--amber-700);
+  --color-warning-bg: var(--amber-50);
+  --color-warning-border: var(--amber-100);
+  --color-danger-text: var(--red-700);
+  --color-danger-bg: var(--red-50);
+  --color-danger-border: var(--red-100);
+  --color-info-text: var(--blue-700);
+  --color-info-bg: var(--blue-50);
+
+  /* ---------- Semantic: navigation (dark chrome) ---------- */
+  --color-nav-bg: var(--navy-800);
+  --color-nav-bg-raised: var(--navy-700);
+  --color-nav-border: rgb(255 255 255 / 0.08);
+  --color-nav-text: var(--navy-200);
+  --color-nav-text-strong: #ffffff;
+  --color-nav-hover: rgb(255 255 255 / 0.06);
+  --color-nav-active: rgb(255 255 255 / 0.1);
+
+  /* ---------- Focus ---------- */
+  --color-focus: var(--teal-600);
+  --color-focus-on-dark: var(--teal-400);
+
+  /* ---------- Brand palette for project monograms ---------- */
+  --brand-teal: #138f89;
+  --brand-violet: #6a5cd6;
+  --brand-coral: #d4574a;
+  --brand-amber: #b7791f;
+  --brand-blue: #2f6bd8;
+  --brand-green: #2f8a4c;
+
+  /* ---------- Typography ---------- */
+  --font-sans: var(--font-onest), "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.8125rem; /* 13 */
+  --text-base: 0.875rem; /* 14 */
+  --text-md: 0.9375rem; /* 15 */
+  --text-lg: 1.0625rem; /* 17 */
+  --text-xl: 1.25rem; /* 20 */
+  --text-2xl: 1.5rem; /* 24 */
+  --text-3xl: 1.875rem; /* 30 */
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-base: 1.55;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 650;
+  --tracking-tight: -0.02em;
+  --tracking-caps: 0.08em;
+
+  /* ---------- Spacing (4px grid) ---------- */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---------- Radius ---------- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 999px;
+
+  /* ---------- Elevation ---------- */
+  --shadow-xs: 0 1px 2px rgb(15 28 48 / 0.05);
+  --shadow-sm: 0 1px 3px rgb(15 28 48 / 0.07), 0 1px 2px rgb(15 28 48 / 0.04);
+  --shadow-md: 0 10px 28px -8px rgb(15 28 48 / 0.18), 0 2px 6px rgb(15 28 48 / 0.06);
+  --shadow-lg: 0 28px 56px -16px rgb(15 28 48 / 0.32), 0 4px 12px rgb(15 28 48 / 0.08);
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
+
+  /* ---------- Layout ---------- */
+  --sidebar-width: 256px;
+  --sidebar-width-compact: 76px;
+  --topbar-height: 60px;
+  --tabbar-height: 64px;
+  --content-max: 1280px;
+  --page-gutter: var(--space-8);
+
+  /* ---------- Layers ---------- */
+  --z-sticky: 20;
+  --z-nav: 30;
+  --z-popover: 40;
+  --z-toast: 60;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --page-gutter: var(--space-6);
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --page-gutter: var(--space-4);
+    --topbar-height: 56px;
+  }
+}

@@ -1,0 +1,25 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text);
+}
+
+.wordmark {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
+.ai {
+  color: var(--color-ai-text);
+}
+
+.onDark {
+  color: #fff;
+}
+
+.onDark .ai {
+  color: var(--violet-300);
+}
