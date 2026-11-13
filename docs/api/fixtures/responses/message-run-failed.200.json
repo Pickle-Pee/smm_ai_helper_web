@@ -1,0 +1,87 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "f9c1bbd2-4e9f-5d66-b96c-947a98849ff3",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "failed",
+  "next_action": "start_new_request",
+  "poll_after_ms": null,
+  "user_message": {
+    "id": "a887698f-9312-5232-b217-936144d0a8c4",
+    "thread_id": "f9c1bbd2-4e9f-5d66-b96c-947a98849ff3",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-22T09:00:05Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0008-7a08-8c08-000000000008",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Разработай стратегию продвижения кофейни",
+    "input": {
+      "message": "Разработай стратегию продвижения кофейни",
+      "competitor_urls": [
+        "https://unreachable.example/"
+      ]
+    },
+    "state": "failed",
+    "state_reason": null
+  },
+  "assistant_message": {
+    "id": "2de3b666-6010-538d-9249-05f54b368ced",
+    "thread_id": "f9c1bbd2-4e9f-5d66-b96c-947a98849ff3",
+    "seq": 2,
+    "role": "assistant",
+    "created_at": "2026-11-22T09:03:20Z",
+    "reply_to": "a887698f-9312-5232-b217-936144d0a8c4",
+    "request_key": "w-0193a4f2-0008-7a08-8c08-000000000008",
+    "revision": 1,
+    "result_status": "available",
+    "result": {
+      "id": "0d053588-a672-5a42-bf71-1ed454ecac73",
+      "message_id": "2de3b666-6010-538d-9249-05f54b368ced",
+      "envelope_version": 1,
+      "schema_version": "copilot_api.v1",
+      "result_kind": "RUN",
+      "writer_version": "0.0.0-fixture",
+      "payload_sha256": "d4ec47a0bf86a2ab37e026101c1bb8524b213bc12a22e9a1c06cfd5c26723935",
+      "provenance": {
+        "source_kind": "graph_run",
+        "run_id": "d89470ac48ff828ebf3590959f215e8c7087cdbbec5cb27cdf67651e857ff4bc",
+        "request_key": "w-0193a4f2-0008-7a08-8c08-000000000008",
+        "revision": 1,
+        "created_by": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
+        },
+        "source_completed_at": "2026-11-22T09:03:18Z",
+        "materialized_at": "2026-11-22T09:03:20Z"
+      },
+      "decoded_with": {
+        "decoder": "copilot_api.v1/RUN",
+        "upcasters": []
+      },
+      "payload": {
+        "schema_version": "copilot_api.v1",
+        "run_id": "d89470ac48ff828ebf3590959f215e8c7087cdbbec5cb27cdf67651e857ff4bc",
+        "status": "FAILED",
+        "strategy": null,
+        "experiments": null,
+        "details": [],
+        "evidence_coverage": null,
+        "limitations": [],
+        "failure": {
+          "code": "result_unavailable",
+          "message": "The request could not be completed.",
+          "actions": [
+            "Contact support with the run ID or submit a new request key."
+          ]
+        }
+      }
+    }
+  },
+  "live_run": null
+}

@@ -1,0 +1,515 @@
+{
+  "schema_version": "fixtures.v1",
+  "openapi": "../web-api-v2.openapi.yaml",
+  "backend_baseline": "Pickle-Pee/smm_ai_helper@76b6c1b",
+  "note": "Все значения вымышлены. Токены — заглушки, не секреты. Формы Copilot/mentor payload получены из реальных DTO backend.",
+  "canonical_json": "json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False) -> UTF-8 -> sha256 hex",
+  "fixtures": [
+    {
+      "file": "errors/csrf-failed.403.json",
+      "type": "error",
+      "title": "Нет или неверный X-CSRF-Token / чужой Origin",
+      "operation_id": "submitMessage",
+      "status": 403,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/feature-disabled.403.json",
+      "type": "error",
+      "title": "Веб-чат выключен (WEB_CHAT_ENABLED=false)",
+      "operation_id": "submitChatMessage",
+      "status": 403,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/forbidden.403.json",
+      "type": "error",
+      "title": "Ошибка доступа: viewer пытается отправить запрос в видимый ему тред",
+      "operation_id": "submitMessage",
+      "status": 403,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Ресурс виден вызывающему, но роли недостаточно. Ядро не вызывается."
+    },
+    {
+      "file": "errors/invalid-request.422.json",
+      "type": "error",
+      "title": "Ошибка валидации без эха введённых значений",
+      "operation_id": "submitMessage",
+      "status": 422,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/login-token-invalid.401.json",
+      "type": "error",
+      "title": "Одноразовый токен неизвестен, истёк или уже использован",
+      "operation_id": "exchangeTelegramLoginToken",
+      "status": 401,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Три случая намеренно неразличимы."
+    },
+    {
+      "file": "errors/not-found-foreign-project.404.json",
+      "type": "error",
+      "title": "Ошибка доступа: проект другой организации",
+      "operation_id": "getProject",
+      "status": 404,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Тело идентично ответу на несуществующий id."
+    },
+    {
+      "file": "errors/not-found-foreign-run.404.json",
+      "type": "error",
+      "title": "Ошибка доступа: попытка получить чужой AI-run через его сообщение",
+      "operation_id": "getMessage",
+      "status": 404,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "run_id не является адресом в /v2; чужое сообщение, чужой request_key и несуществующий id отвечают одинаково."
+    },
+    {
+      "file": "errors/not-found-foreign-thread.404.json",
+      "type": "error",
+      "title": "Ошибка доступа: тред другой организации",
+      "operation_id": "getThread",
+      "status": 404,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Тело идентично ответу на несуществующий id."
+    },
+    {
+      "file": "errors/rate-limited.429.json",
+      "type": "error",
+      "title": "Лимит частоты; проверяется до обращения к ядру",
+      "operation_id": "submitMessage",
+      "status": 429,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/request-conflict.409.json",
+      "type": "error",
+      "title": "Тот же request_key и revision с другим payload",
+      "operation_id": "submitMessage",
+      "status": 409,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Клиент не меняет payload под тем же ключом; новая задача — новый ключ."
+    },
+    {
+      "file": "errors/result-corrupted.503.json",
+      "type": "error",
+      "title": "Повреждение данных: payload_sha256 не совпал",
+      "operation_id": "getMessageResult",
+      "status": 503,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Алерт и карантин; результат не регенерируется молча."
+    },
+    {
+      "file": "errors/result-format-unsupported.409.json",
+      "type": "error",
+      "title": "Snapshot цел, но нет декодера для его schema_version",
+      "operation_id": "getMessageResult",
+      "status": 409,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Несовместимость формата, НЕ повреждение."
+    },
+    {
+      "file": "errors/result-gone.410.json",
+      "type": "error",
+      "title": "Результата нет и не будет под этим ключом (ambiguous / expired)",
+      "operation_id": "getMessageResult",
+      "status": 410,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/revision-conflict.409.json",
+      "type": "error",
+      "title": "revision не следующая за NEEDS_INPUT либо изменён message",
+      "operation_id": "submitMessage",
+      "status": 409,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/stale-project.409.json",
+      "type": "error",
+      "title": "expected_version устарел",
+      "operation_id": "updateProject",
+      "status": 409,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/temporarily-unavailable.503.json",
+      "type": "error",
+      "title": "Исход пока не определён или зависимость недоступна",
+      "operation_id": "submitMessage",
+      "status": 503,
+      "schema": "#/components/schemas/ErrorResponse",
+      "notes": "Не «ничего не произошло»: клиент восстанавливается через getRequestByKey и не создаёт новый ключ."
+    },
+    {
+      "file": "errors/thread-busy.409.json",
+      "type": "error",
+      "title": "В треде уже выполняется другой запрос",
+      "operation_id": "submitMessage",
+      "status": 409,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "errors/unauthenticated.401.json",
+      "type": "error",
+      "title": "Нет действующей сессии",
+      "operation_id": "getMe",
+      "status": 401,
+      "schema": "#/components/schemas/ErrorResponse"
+    },
+    {
+      "file": "golden/snapshot-corrupted-hash.json",
+      "type": "golden",
+      "title": "Повреждённый snapshot: payload изменён после вычисления хэша",
+      "notes": "Форма конверта валидна, но sha256(canonical(payload)) != payload_sha256. Декодер не запускается.",
+      "expect": {
+        "integrity": "failed",
+        "error_code": "result_corrupted",
+        "result_status": "corrupted"
+      }
+    },
+    {
+      "file": "golden/snapshot-unknown-schema-version.json",
+      "type": "golden",
+      "title": "Целый snapshot с неизвестной schema_version",
+      "notes": "Хэш совпадает, но для (copilot_api.v9, RUN) нет замороженного декодера. Это не повреждение.",
+      "expect": {
+        "integrity": "ok",
+        "error_code": "result_format_unsupported",
+        "result_status": "format_unsupported"
+      }
+    },
+    {
+      "file": "requests/auth-exchange.json",
+      "type": "request",
+      "title": "Обмен одноразового токена Telegram",
+      "operation_id": "exchangeTelegramLoginToken",
+      "schema": "#/components/schemas/TelegramExchangeRequest",
+      "notes": "Токен берётся из URL-фрагмента ссылки, присланной ботом."
+    },
+    {
+      "file": "requests/brand-patch.json",
+      "type": "request",
+      "title": "Редактирование бренда с optimistic concurrency",
+      "operation_id": "updateProjectBrand",
+      "schema": "#/components/schemas/ProjectBrandPatch"
+    },
+    {
+      "file": "requests/mentor-question.json",
+      "type": "request",
+      "title": "Новый вопрос наставнику",
+      "operation_id": "askMentorQuestion",
+      "schema": "#/components/schemas/MentorQuestion"
+    },
+    {
+      "file": "requests/project-create.json",
+      "type": "request",
+      "title": "Создание проекта",
+      "operation_id": "createProject",
+      "schema": "#/components/schemas/ProjectCreate"
+    },
+    {
+      "file": "requests/submit-calculation.rev1.json",
+      "type": "request",
+      "title": "Запрос расчёта (DIRECT)",
+      "operation_id": "submitMessage",
+      "schema": "#/components/schemas/SubmitMessageRequest"
+    },
+    {
+      "file": "requests/submit-positioning.rev1.json",
+      "type": "request",
+      "title": "Запрос, на который ядро ответит NEEDS_INPUT",
+      "operation_id": "submitMessage",
+      "schema": "#/components/schemas/SubmitMessageRequest"
+    },
+    {
+      "file": "requests/submit-positioning.rev2.json",
+      "type": "request",
+      "title": "Уточнение: тот же request_key, revision 2, тот же message, дополненный payload",
+      "operation_id": "submitMessage",
+      "schema": "#/components/schemas/SubmitMessageRequest",
+      "notes": "Существующий контракт ядра: только receipt в состоянии NEEDS_INPUT принимает изменённый payload под тем же ключом."
+    },
+    {
+      "file": "requests/submit-strategy.rev1.json",
+      "type": "request",
+      "title": "Запрос стратегии (workflow)",
+      "operation_id": "submitMessage",
+      "schema": "#/components/schemas/SubmitMessageRequest",
+      "notes": "Без поля revision и с тем же request_key это валидный существующий ExecuteRequest ядра."
+    },
+    {
+      "file": "responses/auth-csrf.200.json",
+      "type": "response",
+      "title": "CSRF-токен текущей сессии",
+      "operation_id": "getCsrfToken",
+      "status": 200,
+      "schema": "#/components/schemas/CsrfToken"
+    },
+    {
+      "file": "responses/auth-exchange.200.json",
+      "type": "response",
+      "title": "Успешный вход",
+      "operation_id": "exchangeTelegramLoginToken",
+      "status": 200,
+      "schema": "#/components/schemas/AuthSession",
+      "notes": "Вместе с телом приходит Set-Cookie __Host-brenvio_session (HttpOnly). Значения токенов — заглушки."
+    },
+    {
+      "file": "responses/me.200.json",
+      "type": "response",
+      "title": "Текущий пользователь",
+      "operation_id": "getMe",
+      "status": 200,
+      "schema": "#/components/schemas/Me"
+    },
+    {
+      "file": "responses/mentor-answer.200.json",
+      "type": "response",
+      "title": "Ответ наставника",
+      "operation_id": "askMentorQuestion",
+      "status": 200,
+      "schema": "#/components/schemas/MentorAnswerResult"
+    },
+    {
+      "file": "responses/mentor-explanation.200.json",
+      "type": "response",
+      "title": "Объяснение наставника",
+      "operation_id": "getMentorExplanation",
+      "status": 200,
+      "schema": "#/components/schemas/MentorExplanationResult",
+      "notes": "Вложенный объект — существующий MentorExplanation (case_mentor.v1), ровно 8 секций."
+    },
+    {
+      "file": "responses/mentor-history.200.json",
+      "type": "response",
+      "title": "История вопросов наставнику",
+      "operation_id": "listMentorQuestions",
+      "status": 200,
+      "schema": "#/components/schemas/MentorHistoryResult"
+    },
+    {
+      "file": "responses/message-ambiguous.200.json",
+      "type": "response",
+      "title": "Ambiguous execution: исход неизвестен",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Ядро приняло запрос, но исход вызова провайдера неизвестен. Автоповтора нет; новый запрос — только с новым ключом и по явному действию пользователя."
+    },
+    {
+      "file": "responses/message-clarification-completed.200.json",
+      "type": "response",
+      "title": "Результат после уточнения (revision 2)",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Ревизия 2 — отдельная пара сообщений с тем же request_key; ревизия 1 и её NEEDS_INPUT-snapshot остаются в истории."
+    },
+    {
+      "file": "responses/message-direct-result.200.json",
+      "type": "response",
+      "title": "Успешный AI-результат: DIRECT_RESULT",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Детерминированный калькулятор ядра; значения — десятичные строки, как в существующем DTO."
+    },
+    {
+      "file": "responses/message-expired.200.json",
+      "type": "response",
+      "title": "Expired receipt: результат не был материализован за 30 дней",
+      "operation_id": "getMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Receipt ядра удалён по retention до материализации. Результат не регенерируется."
+    },
+    {
+      "file": "responses/message-module-result.200.json",
+      "type": "response",
+      "title": "Успешный AI-результат: MODULE_RESULT",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Синхронный одиночный модуль: HTTP-запрос длился ~40 с (до GRAPH_TIMEOUT_SECONDS)."
+    },
+    {
+      "file": "responses/message-needs-input.200.json",
+      "type": "response",
+      "title": "Уточнение NEEDS_INPUT",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Snapshot вопроса создаётся сразу: receipt ядра будет перезаписан ревизией. Кандидаты owned_site — утверждения сайта (site_claim), не факты."
+    },
+    {
+      "file": "responses/message-pending-resubmit.200.json",
+      "type": "response",
+      "title": "Восстановление: сообщение сохранено, ядро запрос не приняло",
+      "operation_id": "getRequestByKey",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Сбой между записью сообщения и claim ядра. Клиент повторяет ТОТ ЖЕ запрос тем же ключом; новый ключ не создаётся."
+    },
+    {
+      "file": "responses/message-run-blocked.200.json",
+      "type": "response",
+      "title": "Workflow BLOCKED: нужен контекст или доступный источник",
+      "operation_id": "getMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "failure — существующий PublicFailure с точными строками ядра; сырой run.error наружу не выходит."
+    },
+    {
+      "file": "responses/message-run-failed.200.json",
+      "type": "response",
+      "title": "Ошибка генерации: workflow FAILED",
+      "operation_id": "getMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "failure — существующий PublicFailure с точными строками ядра; сырой run.error наружу не выходит."
+    },
+    {
+      "file": "responses/message-strategy-completed.200.json",
+      "type": "response",
+      "title": "Завершённая стратегия",
+      "operation_id": "getMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Терминальный статус ядра COMPLETED материализован в неизменяемый RUN-snapshot."
+    },
+    {
+      "file": "responses/message-unsupported.200.json",
+      "type": "response",
+      "title": "Неподдерживаемый сценарий (CONVERSATION при выключенном веб-чате)",
+      "operation_id": "submitMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "Ядро вернуло существующий ConversationResponse (delegate: legacy_chat). Web-слой не вызывает Telegram-чат и сохраняет честный UNSUPPORTED."
+    },
+    {
+      "file": "responses/message-workflow-running.200.json",
+      "type": "response",
+      "title": "Выполняющийся workflow",
+      "operation_id": "getMessage",
+      "status": 200,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "live_run — недолговременная проекция существующего RunResponse; стратегии ещё нет, частичное исследование уже принято."
+    },
+    {
+      "file": "responses/message-workflow-started.202.json",
+      "type": "response",
+      "title": "Запущенный workflow (ядро вернуло WORKFLOW_STARTED)",
+      "operation_id": "submitMessage",
+      "status": 202,
+      "schema": "#/components/schemas/MessageResult",
+      "notes": "StartedResponse ядра (run_id и ссылка на статус ядра) в браузер не передаётся: клиент опрашивает getMessage по id сообщения."
+    },
+    {
+      "file": "responses/orgs.200.json",
+      "type": "response",
+      "title": "Организации пользователя (internal beta: одна personal)",
+      "operation_id": "listOrganizations",
+      "status": 200,
+      "schema": "#/components/schemas/OrganizationList"
+    },
+    {
+      "file": "responses/project-brand-imported.200.json",
+      "type": "response",
+      "title": "Бренд сразу после копирования Telegram-профиля",
+      "operation_id": "importTelegramBrand",
+      "status": 200,
+      "schema": "#/components/schemas/ProjectBrand",
+      "notes": "Копия, не синхронизация. extra пуст: в legacy-профиле не было allowlist-ключей."
+    },
+    {
+      "file": "responses/project-brand.200.json",
+      "type": "response",
+      "title": "Brand Context проекта",
+      "operation_id": "getProjectBrand",
+      "status": 200,
+      "schema": "#/components/schemas/ProjectBrand",
+      "notes": "version 3: после импорта бренд редактировался в web. Telegram-профиль при этом не менялся."
+    },
+    {
+      "file": "responses/project.200.json",
+      "type": "response",
+      "title": "Проект с брендом",
+      "operation_id": "getProject",
+      "status": 200,
+      "schema": "#/components/schemas/Project",
+      "notes": "Та же форма у createProject (201) и updateProject (200)."
+    },
+    {
+      "file": "responses/projects-list.200.json",
+      "type": "response",
+      "title": "Проекты организации",
+      "operation_id": "listProjects",
+      "status": 200,
+      "schema": "#/components/schemas/ProjectList",
+      "notes": "Первый проект создан при первом входе копированием Telegram-профиля; второй создан в web и ещё не импортировал профиль."
+    },
+    {
+      "file": "responses/result-snapshot-run.200.json",
+      "type": "response",
+      "title": "Сохранённый snapshot (конверт + provenance)",
+      "operation_id": "getMessageResult",
+      "status": 200,
+      "schema": "#/components/schemas/ResultSnapshot",
+      "notes": "Эталон для golden-теста декодера copilot_api.v1/RUN: payload_sha256 = sha256(canonical JSON payload)."
+    },
+    {
+      "file": "responses/telegram-history.200.json",
+      "type": "response",
+      "title": "Личная история Telegram (только владельцу)",
+      "operation_id": "listTelegramHistory",
+      "status": 200,
+      "schema": "#/components/schemas/LegacyHistoryPage",
+      "notes": "Allowlist-проекция существующих метаданных ProjectHistoryService; заголовки и статусы — иллюстративные значения."
+    },
+    {
+      "file": "responses/thread-created.201.json",
+      "type": "response",
+      "title": "Созданный тред",
+      "operation_id": "createThread",
+      "status": 201,
+      "schema": "#/components/schemas/Thread"
+    },
+    {
+      "file": "responses/thread-messages-clarification.200.json",
+      "type": "response",
+      "title": "История треда с уточнением",
+      "operation_id": "listThreadMessages",
+      "status": 200,
+      "schema": "#/components/schemas/ThreadMessagesPage",
+      "notes": "Обе ревизии одного request_key; is_latest_revision отличает отвеченное уточнение."
+    },
+    {
+      "file": "responses/thread-messages-format-unsupported.200.json",
+      "type": "response",
+      "title": "История: snapshot цел, но формат не поддерживается этой версией",
+      "operation_id": "listThreadMessages",
+      "status": 200,
+      "schema": "#/components/schemas/ThreadMessagesPage",
+      "notes": "Страница не падает: result_status=format_unsupported, result=null. Это несовместимость формата, а не повреждение."
+    },
+    {
+      "file": "responses/thread-messages-reopen.200.json",
+      "type": "response",
+      "title": "Восстановление истории после удаления receipt",
+      "operation_id": "listThreadMessages",
+      "status": 200,
+      "schema": "#/components/schemas/ThreadMessagesPage",
+      "notes": "Тред открыт через 46 дней после завершения: receipt ядра уже удалён (30 дней), ответ собран только из snapshot, вызовов модели нет."
+    },
+    {
+      "file": "responses/threads-list.200.json",
+      "type": "response",
+      "title": "Треды проекта",
+      "operation_id": "listThreads",
+      "status": 200,
+      "schema": "#/components/schemas/ThreadList"
+    }
+  ]
+}

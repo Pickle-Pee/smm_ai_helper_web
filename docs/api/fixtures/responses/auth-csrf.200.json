@@ -1,0 +1,4 @@
+{
+  "schema_version": "web_api.v2",
+  "csrf_token": "fixture-csrf-token-not-a-secret-0000000000000000"
+}

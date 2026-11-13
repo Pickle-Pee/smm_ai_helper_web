@@ -1,0 +1,8 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "rate_limited",
+  "request_id": "req_fixture_0014",
+  "retry_after_seconds": 30,
+  "owned_site": null
+}

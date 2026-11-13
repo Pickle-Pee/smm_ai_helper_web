@@ -1,0 +1,18 @@
+{
+  "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
+  "revision": 2,
+  "message": "Сформулируй позиционирование кофейни",
+  "owned_site_url": "https://zerno.example/",
+  "context": {
+    "customer_job_or_need": "Быстро взять хороший кофе рядом с домом",
+    "relevant_alternative": "Сетевая кофейня в соседнем доме"
+  },
+  "confirmation": {
+    "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
+    "statement_ids": [
+      "stmt_784b44d5ae6da62bf4b332a9"
+    ],
+    "confirmed": true,
+    "reference": "Подтверждаю: это описание нашего продукта"
+  }
+}

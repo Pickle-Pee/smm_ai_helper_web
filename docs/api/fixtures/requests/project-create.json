@@ -1,0 +1,11 @@
+{
+  "name": "Студия керамики «Глина»",
+  "status": "draft",
+  "color": "violet",
+  "brand": {
+    "brand_name": "Глина",
+    "extra": {
+      "industry": "Творческие мастерские"
+    }
+  }
+}

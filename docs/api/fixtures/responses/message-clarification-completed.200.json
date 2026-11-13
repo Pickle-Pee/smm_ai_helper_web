@@ -1,0 +1,115 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "1d8f3c19-e153-5169-92a9-3b9968bfc847",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "completed",
+  "next_action": "none",
+  "poll_after_ms": null,
+  "user_message": {
+    "id": "92366b13-0de9-5491-b249-9cf0a75b2d00",
+    "thread_id": "1d8f3c19-e153-5169-92a9-3b9968bfc847",
+    "seq": 3,
+    "role": "user",
+    "created_at": "2026-11-20T10:05:30Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
+    "revision": 2,
+    "is_latest_revision": true,
+    "text": "Сформулируй позиционирование кофейни",
+    "input": {
+      "message": "Сформулируй позиционирование кофейни",
+      "owned_site_url": "https://zerno.example/",
+      "context": {
+        "customer_job_or_need": "Быстро взять хороший кофе рядом с домом",
+        "relevant_alternative": "Сетевая кофейня в соседнем доме"
+      },
+      "confirmation": {
+        "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
+        "statement_ids": [
+          "stmt_784b44d5ae6da62bf4b332a9"
+        ],
+        "confirmed": true,
+        "reference": "Подтверждаю: это описание нашего продукта"
+      }
+    },
+    "state": "completed",
+    "state_reason": null
+  },
+  "assistant_message": {
+    "id": "891a0c79-dab3-5947-9b86-8b2a4dd68416",
+    "thread_id": "1d8f3c19-e153-5169-92a9-3b9968bfc847",
+    "seq": 4,
+    "role": "assistant",
+    "created_at": "2026-11-20T10:06:12Z",
+    "reply_to": "92366b13-0de9-5491-b249-9cf0a75b2d00",
+    "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
+    "revision": 2,
+    "result_status": "available",
+    "result": {
+      "id": "f81be183-5b2c-5212-acc3-9bf27b9f27df",
+      "message_id": "891a0c79-dab3-5947-9b86-8b2a4dd68416",
+      "envelope_version": 1,
+      "schema_version": "copilot_api.v1",
+      "result_kind": "MODULE_RESULT",
+      "writer_version": "0.0.0-fixture",
+      "payload_sha256": "4e91884f177a311da46a77f58312f913c80d881fd3a0363380aacb259fae973b",
+      "provenance": {
+        "source_kind": "receipt",
+        "run_id": null,
+        "request_key": "w-0193a4f2-0004-7a04-8c04-000000000004",
+        "revision": 2,
+        "created_by": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
+        },
+        "source_completed_at": "2026-11-20T10:06:12Z",
+        "materialized_at": "2026-11-20T10:06:12Z"
+      },
+      "decoded_with": {
+        "decoder": "copilot_api.v1/MODULE_RESULT",
+        "upcasters": []
+      },
+      "payload": {
+        "schema_version": "copilot_api.v1",
+        "owned_site": {
+          "outcome": "ACQUIRED",
+          "snapshot_id": "owned_e1ae7fe4f616ae444a653a1dce164a02",
+          "candidates": []
+        },
+        "kind": "MODULE_RESULT",
+        "result": {
+          "kind": "positioning",
+          "findings": [
+            {
+              "topic": "positioning_statement",
+              "text": "Кофейня у дома для тех, кому важен вкус: зерно обжаривается каждую неделю.",
+              "kind": "RECOMMENDATION",
+              "confidence": "MEDIUM"
+            },
+            {
+              "topic": "reason_to_believe",
+              "text": "Владелец подтвердил: кофейня со свежей обжаркой и продажей зерна навынос.",
+              "kind": "OBSERVATION",
+              "confidence": "MEDIUM"
+            }
+          ],
+          "sources": [
+            {
+              "label": "Supplied business context; not independently verified",
+              "url": null
+            }
+          ],
+          "limitations": [
+            "Сравнение с конкурентом основано только на словах владельца."
+          ]
+        }
+      }
+    }
+  },
+  "live_run": null
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "temporarily_unavailable",
+  "request_id": "req_fixture_0015",
+  "retry_after_seconds": 10,
+  "owned_site": null
+}

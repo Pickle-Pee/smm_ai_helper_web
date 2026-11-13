@@ -1,0 +1,8 @@
+{
+  "schema_version": "web_api.v2",
+  "kind": "ERROR",
+  "code": "thread_busy",
+  "request_id": "req_fixture_0011",
+  "retry_after_seconds": 5,
+  "owned_site": null
+}

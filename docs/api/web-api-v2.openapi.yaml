@@ -1,0 +1,3113 @@
+openapi: 3.1.0
+
+info:
+  title: Brenvio Web API v2 (PROPOSED contract draft)
+  version: 2.0.0-draft.1
+  summary: Contract-first draft of the authenticated browser API for Brenvio. Nothing here is implemented yet.
+  description: |
+    **Status: PROPOSED.** This document is the C0 deliverable of
+    [smm_ai_helper_web#7](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/7), derived from the
+    architecture audit [#6](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/6) (Addendum 1, Addendum 2
+    and the final review). No `/v2` route exists in the backend today.
+
+    Reading rules:
+
+    * Every operation carries `x-status`: `proposed` (target of the internal technical beta), `future`
+      (designed, behind a feature flag, not part of the beta) or `deferred` (shape intentionally not frozen).
+    * Every schema carries `x-status`: `existing` (a verbatim projection of a DTO that exists in
+      `Pickle-Pee/smm_ai_helper@76b6c1b`, file named in `x-source`) or `proposed` (new in Web API v2).
+    * `existing` schemas are copied from the backend and MUST NOT be edited here. If the backend DTO changes,
+      a new snapshot `schema_version` + decoder + upcaster is introduced instead (see README, "Durable history").
+    * Paths are the native FastAPI paths (`/v2/...`). The browser reaches them same-origin through the edge
+      as `/api/v2/...` (see `servers`). Legacy bot routes (`/copilot/*`, `/projects/*`, `/chat/*`,
+      `/internal/*`, ...) are a different trust zone and are NOT part of this contract.
+    * Authorization is never derived from a client-supplied owner. No request DTO has an owner, user,
+      organization-member or Telegram field. `BOT_BACKEND_TOKEN` and `X-Telegram-User-ID` are never accepted
+      on `/v2` and never sent by a browser.
+    * The API promises safe replay and recovery. It does NOT promise exactly-once execution of an external
+      model provider.
+  contact:
+    name: Brenvio web contract (issue tracker)
+    url: https://github.com/Pickle-Pee/smm_ai_helper_web/issues/7
+  x-contract-status: proposed
+  x-backend-baseline: Pickle-Pee/smm_ai_helper@76b6c1b (master, 2026-10-30)
+  x-response-schema-version: web_api.v2
+
+servers:
+  - url: /api
+    description: Public same-origin edge (Caddy). `/api/v2/*` is rewritten to FastAPI `/v2/*`; nothing else is routed.
+  - url: http://127.0.0.1:8000
+    description: Native FastAPI on the host loopback (tests and local development only; never public).
+
+tags:
+  - name: auth
+    description: Identity and cookie sessions (Telegram one-time login in the internal beta).
+  - name: organizations
+    description: Tenant boundary. Internal beta = one personal organization per user.
+  - name: projects
+    description: SaaS projects and their brand (`project_brands`), separate from the legacy Telegram `brand_profiles`.
+  - name: workspace
+    description: Threads, AI requests, execution state and recovery.
+  - name: results
+    description: Durable immutable result snapshots.
+  - name: mentor
+    description: Case mentor for completed strategy runs.
+  - name: legacy-telegram
+    description: The caller's own private Telegram history. Never organization-scoped.
+  - name: web-chat
+    description: FUTURE free-form web chat (`WEB_CHAT_ENABLED`). Not part of the internal technical beta.
+
+security:
+  - sessionCookie: []
+
+x-error-catalog:
+  # code -> HTTP status, retry policy and meaning. `retry` values:
+  #   never            - do not retry; fix the request or the user's state
+  #   same_request     - repeat the identical request (same key, same payload); safe
+  #   after_delay      - repeat the identical request after Retry-After / backoff
+  #   reauthenticate   - obtain a new session, then repeat
+  #   explicit_new_key - only on an explicit user action, with a NEW request_key (may generate again)
+  unauthenticated:
+    status: 401
+    retry: reauthenticate
+    meaning: 'No valid session (missing, expired, revoked) or a non-session credential was presented.'
+  login_token_invalid:
+    status: 401
+    retry: never
+    meaning: 'One-time login token is unknown, expired or already used. The three cases are indistinguishable.'
+  csrf_failed:
+    status: 403
+    retry: same_request
+    meaning: 'Missing/invalid X-CSRF-Token or a cross-site Origin. Fetch a new token first.'
+  forbidden:
+    status: 403
+    retry: never
+    meaning: 'The resource is visible to the caller but the action needs a higher role or authorship.'
+  feature_disabled:
+    status: 403
+    retry: never
+    meaning: 'The capability is behind a feature flag that is off for this deployment or principal.'
+  not_found:
+    status: 404
+    retry: never
+    meaning: 'The resource does not exist OR belongs to another tenant/user. The two are indistinguishable by design.'
+  mentor_explanation_missing:
+    status: 404
+    retry: never
+    meaning: 'The caller may read the message but no mentor explanation has been created yet.'
+  request_conflict:
+    status: 409
+    retry: never
+    meaning: 'The request_key (+revision) was already used with a different payload or in another thread.'
+  revision_conflict:
+    status: 409
+    retry: never
+    meaning: 'The revision is not the next revision of a NEEDS_INPUT request or the message text changed.'
+  thread_busy:
+    status: 409
+    retry: after_delay
+    meaning: 'Another request is in flight in this thread. One execution per thread at a time.'
+  stale_thread:
+    status: 409
+    retry: never
+    meaning: 'FUTURE web chat only. expected_last_seq does not match the thread; reload the thread.'
+  stale_project:
+    status: 409
+    retry: never
+    meaning: 'expected_version does not match the stored project or brand version; reload and re-apply.'
+  idempotency_conflict:
+    status: 409
+    retry: never
+    meaning: 'Idempotency-Key was already used with a different create payload.'
+  confirmation_changed:
+    status: 409
+    retry: never
+    meaning: 'EXISTING core code. The confirmed owned-site statements no longer match.'
+  confirmation_unavailable:
+    status: 409
+    retry: never
+    meaning: 'EXISTING core code. The stored owned-site snapshot is missing; start a new request.'
+  telegram_identity_required:
+    status: 409
+    retry: never
+    meaning: 'The principal has no linked Telegram identity.'
+  import_source_missing:
+    status: 409
+    retry: never
+    meaning: 'The principal has no legacy Telegram brand profile to import.'
+  mentor_not_applicable:
+    status: 409
+    retry: never
+    meaning: 'The message has no completed strategy run to explain.'
+  result_not_ready:
+    status: 409
+    retry: after_delay
+    meaning: 'The request is still pending or running.'
+  result_format_unsupported:
+    status: 409
+    retry: never
+    meaning: 'The snapshot is intact but was written in a schema_version this server has no decoder for. NOT corruption.'
+  result_gone:
+    status: 410
+    retry: explicit_new_key
+    meaning: 'No result exists and none can be obtained under this key (ambiguous or expired).'
+  payload_too_large:
+    status: 413
+    retry: never
+    meaning: 'Request body exceeds the route limit.'
+  invalid_request:
+    status: 422
+    retry: never
+    meaning: 'Validation failed. Submitted values are never echoed.'
+  invalid_confirmation:
+    status: 422
+    retry: never
+    meaning: 'EXISTING core code. Unknown or ineligible confirmation statements.'
+  rate_limited:
+    status: 429
+    retry: after_delay
+    meaning: 'Short-window rate limit. Checked before any core admission.'
+  quota_exceeded:
+    status: 429
+    retry: after_delay
+    meaning: 'Daily usage cap for the user or organization. Checked before any core admission.'
+  temporarily_unavailable:
+    status: 503
+    retry: after_delay
+    meaning: 'Outcome not determined yet or a dependency is down. Recover by key; never mint a new key automatically.'
+  result_corrupted:
+    status: 503
+    retry: never
+    meaning: 'Snapshot integrity check failed (payload_sha256 mismatch). Real data damage; quarantined, never regenerated silently.'
+  result_unreadable:
+    status: 503
+    retry: after_delay
+    meaning: 'Snapshot is intact (hash matches) but its decoder failed. A server defect; data is untouched.'
+
+paths:
+  /v2/auth/telegram/exchange:
+    post:
+      tags: [auth]
+      operationId: exchangeTelegramLoginToken
+      summary: Exchange a one-time Telegram login token for a browser session
+      description: |
+        The bot obtains a single-use link from the bot-only internal endpoint
+        (`POST /internal/identity/web-login-link`, not routed by the edge, not in this document) and sends
+        `https://<app>/auth/telegram#t=<token>` to the user. The page reads the fragment and posts it here.
+
+        * The token is single-use, TTL 10 minutes, stored only as a hash. Unknown, expired and used tokens are
+          indistinguishable (`401 login_token_invalid`).
+        * On success the session is bound to the SAME internal `users.id` the bot uses; no data is copied.
+        * Sets `__Host-brenvio_session` (HttpOnly, Secure, SameSite=Lax, Path=/). A previous session cookie on
+          the same browser is revoked (session fixation protection).
+        * No CSRF token is required (there is no session yet) but `Origin` / `Sec-Fetch-Site` MUST be same-origin.
+        * On first login a personal organization and a personal project are provisioned; the legacy Telegram
+          brand profile, if any, is copied once into `project_brands` (see `importTelegramBrand`).
+      x-status: proposed
+      x-stage: B2
+      x-availability: internal-beta
+      x-min-role: public
+      x-feature-flag: WEB_API_ENABLED, WEB_TELEGRAM_LOGIN_ENABLED
+      x-error-codes: {'401': [login_token_invalid], '403': [csrf_failed], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TelegramExchangeRequest'}
+            examples:
+              default: {externalValue: fixtures/requests/auth-exchange.json}
+      responses:
+        '200':
+          description: Session created.
+          headers:
+            Set-Cookie: {$ref: '#/components/headers/SessionSetCookie'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthSession'}
+              examples:
+                default: {externalValue: fixtures/responses/auth-exchange.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/auth/csrf:
+    get:
+      tags: [auth]
+      operationId: getCsrfToken
+      summary: Get the CSRF token bound to the current session
+      description: |
+        Returns the token the client must echo in `X-CSRF-Token` on every unsafe method (POST, PATCH, PUT,
+        DELETE). The token is bound to the session and changes when the session is rotated. Keep it in memory;
+        do not persist it. Call this after a page reload and after any `403 csrf_failed`.
+      x-status: proposed
+      x-stage: B2
+      x-availability: internal-beta
+      x-min-role: self
+      x-error-codes: {'401': [unauthenticated], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: Current CSRF token.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CsrfToken'}
+              examples:
+                default: {externalValue: fixtures/responses/auth-csrf.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the current session
+      description: |
+        Revokes the server-side session and clears the cookie. Idempotent: a request without a valid session
+        also returns 204 and clears the cookie. With a valid session `X-CSRF-Token` is required.
+        Logout does not cancel running AI work; results stay available after the next login.
+      x-status: proposed
+      x-stage: B2
+      x-availability: internal-beta
+      x-min-role: public
+      x-error-codes: {'403': [csrf_failed], '503': [temporarily_unavailable]}
+      security:
+        - {}
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Session revoked (or there was none).
+          headers:
+            Set-Cookie: {$ref: '#/components/headers/SessionClearCookie'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Current user, memberships, session and feature flags
+      x-status: proposed
+      x-stage: B2
+      x-availability: internal-beta
+      x-min-role: self
+      x-error-codes: {'401': [unauthenticated], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: The authenticated principal.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Me'}
+              examples:
+                default: {externalValue: fixtures/responses/me.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/me/telegram-history:
+    get:
+      tags: [legacy-telegram]
+      operationId: listTelegramHistory
+      summary: The caller's own Telegram history (read-only, private)
+      description: |
+        Read-only list of what the caller created through the Telegram bot. Delegates to the existing
+        `ProjectHistoryService` through an owner-id variant (proposed backend change B11).
+
+        Privacy invariants:
+        * Scoped to `principal.user_id` only. There is no organization or project parameter and no other
+          user's history is reachable through any `/v2` path.
+        * Nothing here is shared with organization members, ever, by default. Importing a single item into a
+          project is an explicit, per-item, future action (not in C0).
+        * Requires a linked Telegram identity (`409 telegram_identity_required` otherwise).
+
+        Pagination keeps the existing bounded offset semantics (limit 1-50, offset 0-10000). The list can
+        shift when new items arrive; it is a navigation aid, not a stable export cursor.
+      x-status: proposed
+      x-stage: B11
+      x-availability: internal-beta
+      x-min-role: self
+      x-delegates-to: ProjectHistoryService.recent (owner-id variant, proposed)
+      x-error-codes: {'401': [unauthenticated], '409': [telegram_identity_required], '422': [invalid_request], '503': [temporarily_unavailable]}
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 10}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, maximum: 10000, default: 0}}
+        - name: source_type
+          in: query
+          schema: {$ref: '#/components/schemas/LegacySourceType'}
+        - name: status
+          in: query
+          description: Existing filter. `completed`, `failed` and `running` are groups; other values match exactly.
+          schema: {type: string, pattern: '^[a-z_]{1,32}$'}
+        - name: query
+          in: query
+          description: Existing prefix search on the bounded title.
+          schema: {type: string, maxLength: 100}
+      responses:
+        '200':
+          description: One page of the caller's legacy history.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LegacyHistoryPage'}
+              examples:
+                default: {externalValue: fixtures/responses/telegram-history.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/me/telegram-history/{public_id}:
+    get:
+      tags: [legacy-telegram]
+      operationId: getTelegramHistoryItem
+      summary: One legacy history item (DEFERRED - result shape not frozen)
+      description: |
+        The existing `ProjectHistoryService.get` returns a per-source result as untyped dictionaries (task
+        result, fixed-workflow artifacts, graph case, receipt, conversation turns). C0 deliberately does NOT
+        invent a typed schema for them. The typed projection is to be designed in B11; until then this
+        operation is not implemented and the UI shows the list only.
+      x-status: deferred
+      x-stage: B11
+      x-availability: internal-beta
+      x-min-role: self
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '409': [telegram_identity_required], '503': [temporarily_unavailable]}
+      parameters:
+        - $ref: '#/components/parameters/LegacyPublicId'
+      responses:
+        '200':
+          description: Item metadata plus an untyped, bounded result (shape to be defined in B11).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LegacyHistoryItemDetail'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/orgs:
+    get:
+      tags: [organizations]
+      operationId: listOrganizations
+      summary: Organizations the caller is an active member of
+      description: |
+        Internal beta: exactly one `personal` organization with role `owner`. Team organizations, invitations
+        and member management (`/v2/orgs/{org_id}/members`) are FUTURE (B10) and not in this document.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: self
+      x-error-codes: {'401': [unauthenticated], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: Active memberships.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationList'}
+              examples:
+                default: {externalValue: fixtures/responses/orgs.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/orgs/{org_id}/projects:
+    parameters:
+      - $ref: '#/components/parameters/OrgId'
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: Projects of an organization
+      description: Keyset pagination ordered by `updated_at` descending, then `id`. Archived projects are included; filter by `status`.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '422': [invalid_request], '503': [temporarily_unavailable]}
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: {$ref: '#/components/schemas/ProjectStatus'}
+      responses:
+        '200':
+          description: One page of projects, each with its brand.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectList'}
+              examples:
+                default: {externalValue: fixtures/responses/projects-list.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: Create a project with its (possibly empty) brand
+      description: |
+        Creates the `projects` row and exactly one `project_brands` row in one transaction. Never writes to the
+        legacy `brand_profiles` table. With `Idempotency-Key`, a repeated identical request returns the project
+        created by the first one (`200` instead of `201`); a different payload under the same key is
+        `409 idempotency_conflict`.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: editor
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '409': [idempotency_conflict], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProjectCreate'}
+            examples:
+              default: {externalValue: fixtures/requests/project-create.json}
+      responses:
+        '200':
+          description: Idempotent replay; the project created earlier under this Idempotency-Key.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+        '201':
+          description: Project created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+              examples:
+                default: {externalValue: fixtures/responses/project.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      operationId: getProject
+      summary: Get a project with its brand
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+              examples:
+                default: {externalValue: fixtures/responses/project.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404':
+          description: Unknown project or a project of another organization (indistinguishable).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                foreignProject: {externalValue: fixtures/errors/not-found-foreign-project.404.json}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    patch:
+      tags: [projects]
+      operationId: updateProject
+      summary: Edit project metadata (name, status, colour)
+      description: |
+        Optimistic concurrency: `expected_version` must equal the stored `version`, otherwise
+        `409 stale_project` and nothing is written. Brand fields are edited through `updateProjectBrand`.
+        Moving a project to another organization is not supported.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: editor
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '409': [stale_project], '422': [invalid_request], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProjectPatch'}
+      responses:
+        '200':
+          description: Updated project with the new `version`.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Version conflict.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                staleProject: {externalValue: fixtures/errors/stale-project.409.json}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/projects/{project_id}/brand:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [projects]
+      operationId: getProjectBrand
+      summary: Get the brand context of a project
+      description: |
+        The brand is what the AI core receives as brand context for requests in this project
+        (`brand_entries(to_context(project_brand))`, existing pure functions reused through an adapter).
+        Explicit request `context` values always take precedence over the brand (existing core rule).
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: The project brand.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectBrand'}
+              examples:
+                default: {externalValue: fixtures/responses/project-brand.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    patch:
+      tags: [projects]
+      operationId: updateProjectBrand
+      summary: Edit the brand context of a project
+      description: |
+        Partial update with optimistic concurrency (`expected_version` against `ProjectBrand.version`).
+        Omitted field = unchanged; `null` = cleared. `extra` is merged key by key (`null` removes a key).
+        Writes only `project_brands`; the legacy Telegram `brand_profiles` row is never touched, and edits
+        made in the Telegram bot do not appear here (the two are independent copies after import).
+
+        A changed brand changes the effective plan of later requests. It does not affect requests that are
+        already admitted: an identical replay of an admitted `request_key` keeps returning its stored result.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: editor
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '409': [stale_project], '422': [invalid_request], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProjectBrandPatch'}
+            examples:
+              default: {externalValue: fixtures/requests/brand-patch.json}
+      responses:
+        '200':
+          description: Updated brand with the new `version`.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectBrand'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/projects/{project_id}/brand/import-telegram:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [projects]
+      operationId: importTelegramBrand
+      summary: Copy the caller's personal Telegram BrandProfile into a personal project
+      description: |
+        One-way COPY of the caller's own legacy `brand_profiles` row into this project's `project_brands` row,
+        with provenance (`imported_from`). It is a deliberate fork, not synchronization: afterwards the two
+        records evolve independently, Telegram edits are not reflected in the web project and web edits never
+        write back to Telegram.
+
+        Rules:
+        * Source: only the caller's own legacy profile (`409 import_source_missing` if none,
+          `409 telegram_identity_required` without a Telegram identity).
+        * Target: only a project of the caller's own `personal` organization (`403 forbidden` for a team
+          organization project the caller can see).
+        * The copy REPLACES the mapped brand fields; `expected_version` and the literal
+          `confirm_overwrite: true` are required so that web edits are never lost silently.
+        * The first import of a project (`imported_from` is null) is always available. The automatic copy at
+          first login uses the same code path.
+
+        OPEN PRODUCT DECISION (OQ-1, D3b): a REPEATED manual import ("import again" after either side
+        changed) is not approved. Until the owner decides whether it exists and with which semantics
+        (replace / field-wise merge / preview), a repeated import returns `403 feature_disabled`
+        (flag `WEB_BRAND_REIMPORT_ENABLED`, default off) and `Project.permissions.can_import_telegram_brand`
+        is false once `imported_from` is set.
+      x-status: proposed
+      x-stage: B4
+      x-availability: internal-beta
+      x-min-role: owner
+      x-feature-flag: WEB_BRAND_REIMPORT_ENABLED (repeated import only)
+      x-open-question: OQ-1
+      x-delegates-to: BrandProfileService.get_by_user_id (read-only), project brand adapter (proposed)
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden, feature_disabled], '404': [not_found], '409': [stale_project, telegram_identity_required, import_source_missing], '422': [invalid_request], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BrandImportRequest'}
+      responses:
+        '200':
+          description: Brand replaced by a copy of the legacy profile; `imported_from` updated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectBrand'}
+              examples:
+                default: {externalValue: fixtures/responses/project-brand-imported.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/projects/{project_id}/threads:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [workspace]
+      operationId: listThreads
+      summary: Threads of a project
+      description: |
+        Keyset pagination ordered by `updated_at` descending, then `id`. Reads only web tables
+        (`workspace_threads`) joined with active membership; the AI core is never queried by membership.
+        Removed threads are not listed.
+      x-status: proposed
+      x-stage: B5
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '422': [invalid_request], '503': [temporarily_unavailable]}
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: One page of threads.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ThreadList'}
+              examples:
+                default: {externalValue: fixtures/responses/threads-list.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [workspace]
+      operationId: createThread
+      summary: Create a thread
+      description: |
+        Internal beta accepts only `kind: copilot` (structured Copilot scenarios). `kind: chat` returns
+        `403 feature_disabled` until `WEB_CHAT_ENABLED` (B9). `Idempotency-Key` behaves as in `createProject`.
+      x-status: proposed
+      x-stage: B5
+      x-availability: internal-beta
+      x-min-role: editor
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden, feature_disabled], '404': [not_found], '409': [idempotency_conflict], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ThreadCreate'}
+      responses:
+        '200':
+          description: Idempotent replay; the thread created earlier under this Idempotency-Key.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Thread'}
+        '201':
+          description: Thread created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Thread'}
+              examples:
+                default: {externalValue: fixtures/responses/thread-created.201.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/threads/{thread_id}:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+    get:
+      tags: [workspace]
+      operationId: getThread
+      summary: Thread metadata and in-flight pointer
+      description: |
+        `in_flight` points at the request that currently holds the thread's single execution slot, if any.
+        After a reload or on another device the client follows it with `getMessage` instead of submitting again.
+      x-status: proposed
+      x-stage: B5
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: The thread.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Thread'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404':
+          description: Unknown or removed thread, or a thread of another organization (indistinguishable).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                foreignThread: {externalValue: fixtures/errors/not-found-foreign-thread.404.json}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    delete:
+      tags: [workspace]
+      operationId: removeThread
+      summary: Remove a thread from the project (does NOT erase underlying AI data)
+      description: |
+        "Remove from project": soft-deletes the web rows (thread, messages, snapshots); they disappear from
+        every `/v2` read immediately and are hard-purged after the retention window (proposed 30 days).
+
+        This is NOT "erase underlying AI data". Core records created by the author (graph runs, artifacts,
+        mentor companions) are user-owned and are not deleted by this call; core receipts expire on their own
+        after 30 days. A core erasure service (B12) is not approved, database backups have no agreed lifetime
+        (D18), therefore neither this API nor the UI may promise complete deletion.
+
+        Allowed for the thread author (role editor or higher) and the organization owner. A request in flight
+        is not cancelled; it finishes in the core but is no longer reachable through this thread.
+      x-status: proposed
+      x-stage: B6
+      x-availability: internal-beta
+      x-min-role: author-or-owner
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Removed from the project (idempotent for the author/owner until purge).
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/threads/{thread_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+    get:
+      tags: [workspace]
+      operationId: listThreadMessages
+      summary: Message history of a thread (durable, receipt-independent)
+      description: |
+        Returns messages in ascending `seq`. Without `before_seq`/`after_seq` the LATEST page is returned.
+        `before_seq` pages backwards; `after_seq` fetches only newer messages (incremental refresh). The two
+        are mutually exclusive (`422 invalid_request`).
+
+        Results come from immutable `result_snapshots`, never from core receipts, so a thread opens the same
+        way after the 30-day receipt retention and never triggers a model call. For a request whose workflow
+        finished but is not materialized yet, the read path materializes the snapshot lazily and idempotently
+        (read-only towards the core).
+
+        A snapshot that cannot be presented does not fail the page: the assistant message carries
+        `result_status` (`corrupted`, `format_unsupported`, `unreadable`) and `result: null`.
+      x-status: proposed
+      x-stage: B6
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-delegates-to: web tables; GraphRunReader.get_for_owner (lazy materialization only, proposed owner-id variant)
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '422': [invalid_request], '503': [temporarily_unavailable]}
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: before_seq
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: after_seq
+          in: query
+          schema: {type: integer, format: int64, minimum: 0}
+      responses:
+        '200':
+          description: One page of messages with embedded durable results.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ThreadMessagesPage'}
+              examples:
+                reopenAfterReceiptExpiry: {externalValue: fixtures/responses/thread-messages-reopen.200.json}
+                clarificationHistory: {externalValue: fixtures/responses/thread-messages-clarification.200.json}
+                formatUnsupported: {externalValue: fixtures/responses/thread-messages-format-unsupported.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [workspace]
+      operationId: submitMessage
+      summary: Submit an AI request (or a clarification revision) to a Copilot thread
+      description: |
+        The only operation that can start AI work. The core is always invoked with
+        `owner = principal.user_id` and the brand of the thread's project; the DTO has no owner field.
+
+        **Idempotency.** `(principal, request_key, revision)` identifies the request.
+        * Same key, same revision, same payload: replay. The stored state is returned, the core is not
+          asked to generate again. Replaying a still-running request returns its current state.
+        * Same key, same revision, different payload: `409 request_conflict`.
+        * Key already used in another thread: `409 request_conflict`.
+        * `revision = n + 1` is accepted only if revision `n` is the latest and ended in `needs_input`, and
+          `message` is unchanged; otherwise `409 revision_conflict`. The SAME `request_key` is kept, which
+          is the existing core clarification contract.
+        * A different request while another one is `pending`/`running` in this thread: `409 thread_busy`.
+
+        **Status codes.**
+        * `200` - the request reached a durable state synchronously: `completed`, `needs_input`,
+          `unsupported`, `ambiguous` (or a replay of any terminal state).
+        * `202` - the request is `running` (a workflow was started, or a replay found it still running).
+          Poll `getMessage`.
+        * `503 temporarily_unavailable` - the outcome is NOT known yet (in flight elsewhere, dependency down,
+          crash window). The client MUST recover with `getRequestByKey` and MUST NOT mint a new key.
+        * Rate limits and quotas (`429`) are evaluated before the core is asked to admit anything.
+
+        **Long requests.** DIRECT and single-module results are computed inside this HTTP request by the
+        existing core, bounded by `GRAPH_TIMEOUT_SECONDS` (300 s today). The edge route timeout must exceed
+        it. A client disconnect does not cancel the work; recover with `getRequestByKey`.
+
+        **No exactly-once.** The core commits its claim before any provider call and never re-executes a
+        crashed or ambiguous claim automatically. A provider may still have been called once for a request
+        that ends `ambiguous`.
+
+        **Authorization recheck.** Membership is checked before the core is called and again immediately
+        before the response is built. If it was revoked in between, the response is `404` and the started
+        work continues as the author's own core record; it is not cancelled.
+      x-status: proposed
+      x-stage: B5
+      x-availability: internal-beta
+      x-min-role: editor
+      x-delegates-to: CopilotAPI.execute_for_owner (proposed refactor B3a of the existing CopilotAPIService.execute)
+      x-error-codes:
+        '401': [unauthenticated]
+        '403': [csrf_failed, forbidden, feature_disabled]
+        '404': [not_found]
+        '409': [request_conflict, revision_conflict, thread_busy, confirmation_changed, confirmation_unavailable]
+        '413': [payload_too_large]
+        '422': [invalid_request, invalid_confirmation]
+        '429': [rate_limited, quota_exceeded]
+        '503': [temporarily_unavailable]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SubmitMessageRequest'}
+            examples:
+              strategy: {externalValue: fixtures/requests/submit-strategy.rev1.json}
+              calculation: {externalValue: fixtures/requests/submit-calculation.rev1.json}
+              positioningNeedsInput: {externalValue: fixtures/requests/submit-positioning.rev1.json}
+              positioningClarification: {externalValue: fixtures/requests/submit-positioning.rev2.json}
+      responses:
+        '200':
+          description: Durable state reached synchronously, or replay of a terminal state.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResult'}
+              examples:
+                directResult: {externalValue: fixtures/responses/message-direct-result.200.json}
+                moduleResult: {externalValue: fixtures/responses/message-module-result.200.json}
+                needsInput: {externalValue: fixtures/responses/message-needs-input.200.json}
+                clarificationCompleted: {externalValue: fixtures/responses/message-clarification-completed.200.json}
+                unsupported: {externalValue: fixtures/responses/message-unsupported.200.json}
+                ambiguous: {externalValue: fixtures/responses/message-ambiguous.200.json}
+        '202':
+          description: Admitted and running. Poll `getMessage` using `poll_after_ms`.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResult'}
+              examples:
+                workflowStarted: {externalValue: fixtures/responses/message-workflow-started.202.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403':
+          description: CSRF failure, insufficient role or disabled feature.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                viewerCannotSubmit: {externalValue: fixtures/errors/forbidden.403.json}
+                csrfFailed: {externalValue: fixtures/errors/csrf-failed.403.json}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Idempotency, revision, thread-slot or confirmation conflict.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                requestConflict: {externalValue: fixtures/errors/request-conflict.409.json}
+                revisionConflict: {externalValue: fixtures/errors/revision-conflict.409.json}
+                threadBusy: {externalValue: fixtures/errors/thread-busy.409.json}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/threads/{thread_id}/requests/{request_key}:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+      - $ref: '#/components/parameters/RequestKeyPath'
+    get:
+      tags: [workspace]
+      operationId: getRequestByKey
+      summary: Recover the state of a request by its client key (author only)
+      description: |
+        Recovery entry point when the response of `submitMessage` was lost (network error, timeout, reload,
+        `503`). Returns the LATEST revision stored for this key, scoped to `created_by = principal`.
+
+        * `404 not_found` - the server never stored this key for the caller in this thread (or the thread is
+          not readable). The client may submit the identical request again with the same key.
+        * `200` - follow `next_action`. `resubmit_same_key` means the message was stored but the core never
+          admitted it; resubmitting the identical payload is safe because the core claim admits a key once.
+
+        Read-only towards the core (`ExecutionStore.get`, `GraphRunReader.get_for_owner`); never generates.
+        Another member's key is `404`, exactly like an unknown key.
+      x-status: proposed
+      x-stage: B5
+      x-availability: internal-beta
+      x-min-role: author
+      x-delegates-to: ExecutionStore.get, GraphRunReader.get_for_owner (read-only)
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '422': [invalid_request], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: Current state of the latest revision of this request.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResult'}
+              examples:
+                storedButNeverAdmitted: {externalValue: fixtures/responses/message-pending-resubmit.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/messages/{message_id}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [workspace]
+      operationId: getMessage
+      summary: Execution state of a request (polling) and its result once durable
+      description: |
+        Accepts the id of either message of a request/reply pair. Polling endpoint for `running` requests:
+        honour `poll_after_ms` (suggested 2 s, then 5 s, then 10 s) and stop on any state whose
+        `next_action` is not `poll`. There is no SSE or streaming in this contract.
+
+        Read path, all read-only towards the core:
+        1. Project authorization from web tables (membership, role `viewer`); remember `membership_version`.
+        2. If a snapshot exists, serve it. Otherwise:
+           * author only - `ExecutionStore.get(owner = principal, key)` to replay a finished synchronous result;
+           * any member - delegated read `GraphRunReader.get_for_owner(owner = message.created_by, run_id)`
+             for a workflow. The owner comes from the verified project mapping, never from the caller.
+        3. Terminal core state is materialized into an immutable snapshot (idempotent insert).
+        4. Membership is checked AGAIN immediately before the response is built. If it changed, the payload is
+           dropped and the response is `404`.
+
+        Step 4 means access is verified immediately before response construction and later requests are
+        denied. It is not a linearizable guarantee: a revocation that commits after step 4 can still race
+        with delivery of this one response.
+
+        `live_run` is a non-durable projection of the running core graph (existing `RunResponse`, partial
+        accepted research may appear). It is never stored and disappears once the snapshot exists.
+
+        A request whose run belongs to another tenant is `404`. A core `run_id` is never an address in
+        `/v2`: there is no endpoint that takes one.
+      x-status: proposed
+      x-stage: B5 (state), B6 (materialization)
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-delegates-to: ExecutionStore.get (author only), GraphRunReader.get_for_owner (delegated, proposed owner-id variant)
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: Current state of the request.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResult'}
+              examples:
+                workflowRunning: {externalValue: fixtures/responses/message-workflow-running.200.json}
+                strategyCompleted: {externalValue: fixtures/responses/message-strategy-completed.200.json}
+                runFailed: {externalValue: fixtures/responses/message-run-failed.200.json}
+                runBlocked: {externalValue: fixtures/responses/message-run-blocked.200.json}
+                expiredReceipt: {externalValue: fixtures/responses/message-expired.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404':
+          description: Unknown message, or a message (and therefore AI run) of another tenant (indistinguishable).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                foreignRun: {externalValue: fixtures/errors/not-found-foreign-run.404.json}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/messages/{message_id}/result:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [results]
+      operationId: getMessageResult
+      summary: The durable result snapshot of a request
+      description: |
+        Returns the immutable snapshot envelope with provenance. Read path:
+
+        1. **Integrity** - recompute `sha256(canonical_json(payload))` and compare with `payload_sha256`.
+           Mismatch is real damage: `503 result_corrupted`, alert, quarantine. Never regenerated silently.
+        2. **Format** - look up the frozen decoder for `(schema_version, result_kind)`. No decoder:
+           `409 result_format_unsupported`. The data is intact; this is NOT corruption.
+        3. **Decode + upcast** - run the frozen decoder and the upcaster chain to the current presentation.
+           A failure here with a matching hash is a server defect: `503 result_unreadable`; data untouched.
+
+        Never calls a model and never reads a core receipt.
+      x-status: proposed
+      x-stage: B6
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '409': [result_not_ready, result_format_unsupported], '410': [result_gone], '503': [result_corrupted, result_unreadable, temporarily_unavailable]}
+      responses:
+        '200':
+          description: The snapshot.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResultSnapshot'}
+              examples:
+                strategyRun: {externalValue: fixtures/responses/result-snapshot-run.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: Not ready yet, or stored in a format this server cannot present.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                formatUnsupported: {externalValue: fixtures/errors/result-format-unsupported.409.json}
+        '410':
+          description: No result exists and none can be obtained under this key.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                gone: {externalValue: fixtures/errors/result-gone.410.json}
+        '503':
+          description: Integrity failure, decoder defect or dependency outage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                corrupted: {externalValue: fixtures/errors/result-corrupted.503.json}
+
+  /v2/messages/{message_id}/mentor:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [mentor]
+      operationId: getMentorExplanation
+      summary: Saved mentor explanation of a completed strategy
+      description: |
+        Delegated read of the existing `CaseMentorService.get` with `owner = message.created_by`, after
+        project authorization and with the same membership recheck as `getMessage`. Applies only to a
+        request whose result is a `RUN` snapshot in `completed` / `completed_with_limitations`.
+        `404 mentor_explanation_missing` is returned only to callers who may read the message.
+      x-status: proposed
+      x-stage: B8
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-delegates-to: CaseMentorService.get (proposed owner-id variant B3b)
+      x-error-codes: {'401': [unauthenticated], '404': [not_found, mentor_explanation_missing], '409': [mentor_not_applicable], '503': [temporarily_unavailable]}
+      responses:
+        '200':
+          description: The saved explanation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MentorExplanationResult'}
+              examples:
+                default: {externalValue: fixtures/responses/mentor-explanation.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [mentor]
+      operationId: createMentorExplanation
+      summary: Create (or return) the mentor explanation - author only
+      description: |
+        Idempotent: returns the saved explanation if it exists. In the current backend the explanation is
+        built deterministically from accepted artifacts of the run. Author only, because the mentor
+        companion record in the core belongs to the creator of the run.
+      x-status: proposed
+      x-stage: B8
+      x-availability: internal-beta
+      x-min-role: author
+      x-delegates-to: CaseMentorService.explain (proposed owner-id variant B3b)
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '409': [mentor_not_applicable], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      responses:
+        '200':
+          description: The explanation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MentorExplanationResult'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/messages/{message_id}/mentor/questions:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [mentor]
+      operationId: listMentorQuestions
+      summary: History of mentor questions and answers
+      x-status: proposed
+      x-stage: B8
+      x-availability: internal-beta
+      x-min-role: viewer
+      x-delegates-to: CaseMentorService.history (proposed owner-id variant B3b)
+      x-error-codes: {'401': [unauthenticated], '404': [not_found], '409': [mentor_not_applicable], '422': [invalid_request], '503': [temporarily_unavailable]}
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 50}}
+      responses:
+        '200':
+          description: Up to 50 most recent turns (existing bound).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MentorHistoryResult'}
+              examples:
+                default: {externalValue: fixtures/responses/mentor-history.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [mentor]
+      operationId: askMentorQuestion
+      summary: Ask the mentor a new question about a saved result - author only
+      description: |
+        Calls a model. Idempotent by the client `request_key` (existing mentor contract): the same key and
+        question replays the saved answer; the same key with another question is `409 request_conflict`.
+        An unknown provider outcome is never re-run automatically: the key keeps answering
+        `503 temporarily_unavailable` and the user may ask again with a new key.
+        Rate limits and quotas are evaluated before the model is called.
+      x-status: proposed
+      x-stage: B8
+      x-availability: internal-beta
+      x-min-role: author
+      x-delegates-to: CaseMentorService.question (proposed owner-id variant B3b)
+      x-error-codes: {'401': [unauthenticated], '403': [csrf_failed, forbidden], '404': [not_found], '409': [request_conflict, mentor_not_applicable], '422': [invalid_request], '429': [rate_limited, quota_exceeded], '503': [temporarily_unavailable]}
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MentorQuestion'}
+            examples:
+              default: {externalValue: fixtures/requests/mentor-question.json}
+      responses:
+        '200':
+          description: The answer (new or replayed).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MentorAnswerResult'}
+              examples:
+                default: {externalValue: fixtures/responses/mentor-answer.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+  /v2/threads/{thread_id}/chat-messages:
+    parameters:
+      - $ref: '#/components/parameters/ThreadId'
+    post:
+      tags: [web-chat]
+      operationId: submitChatMessage
+      summary: FUTURE - send a free-form chat message to a `chat` thread
+      description: |
+        Not part of the internal technical beta; a release gate of the public launch (B9/F7, gates G1-G7).
+        While `WEB_CHAT_ENABLED` is off the route answers `403 feature_disabled`.
+
+        Design constraints this contract reserves (no Telegram logic changes):
+        * **Separate scope** - chat memory key `web:t:<thread_id>`, outside the Telegram `tg:<id>` space; the
+          legacy `/chat/message`, `ChatExecutionService`, `conversations` and `messages` are not used.
+        * **Separate receipt** - `web_chat_execution.v1` in the web layer: claim before the model call,
+          `ambiguous` on unknown outcome, a running claim is never stolen.
+        * **Serialized execution per thread** - a request_key receipt only deduplicates the SAME request. Two
+          different messages in one thread are serialized by the thread's single in-flight slot plus
+          `expected_last_seq` (`409 thread_busy` / `409 stale_thread`). No SQL transaction stays open during
+          the model call.
+        * **No duplicated memory** - the user turn, the reply and context/facts updates are buffered and
+          committed in the same transaction as the reply snapshot. An `ambiguous` or failed attempt commits
+          nothing to chat memory, so a retry with a new key does not duplicate context.
+        * **Model usage limits** - input at most 4000 characters, bounded output tokens, per-user and
+          per-organization daily caps evaluated BEFORE the claim (`429 quota_exceeded`), no image generation.
+        * The browser receives the allowlisted `WebChatReply` only; the legacy `debug` field never leaves the
+          backend.
+      x-status: future
+      x-stage: B9
+      x-availability: public-launch
+      x-min-role: editor
+      x-feature-flag: WEB_CHAT_ENABLED
+      x-delegates-to: ChatService.handle with injected WebThreadMemory / WebThreadContext (proposed)
+      x-error-codes:
+        '401': [unauthenticated]
+        '403': [csrf_failed, forbidden, feature_disabled]
+        '404': [not_found]
+        '409': [request_conflict, thread_busy, stale_thread]
+        '422': [invalid_request]
+        '429': [rate_limited, quota_exceeded]
+        '503': [temporarily_unavailable]
+      security:
+        - sessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SubmitChatMessageRequest'}
+      responses:
+        '200':
+          description: Reply stored (or replay of a stored reply, or `ambiguous`).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResult'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403':
+          description: Feature disabled in the internal beta, CSRF failure or insufficient role.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+              examples:
+                featureDisabled: {externalValue: fixtures/errors/feature-disabled.403.json}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-brenvio_session
+      description: |
+        Opaque random 256-bit session token. `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain`. Only
+        `sha256(token)` is stored server-side (`web_sessions`). Proposed lifetimes: idle 7 days, absolute
+        30 days; rotated on login. Not accepted on legacy bot routes; the bot token is not accepted here.
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: |
+        Required on every unsafe method together with a same-origin `Origin` / `Sec-Fetch-Site`. The value is
+        the session-bound token from `exchangeTelegramLoginToken` or `getCsrfToken`. There is no CORS: the
+        API is same-origin only.
+
+  parameters:
+    OrgId:
+      name: org_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ThreadId:
+      name: thread_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    MessageId:
+      name: message_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RequestKeyPath:
+      name: request_key
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/RequestKey'}
+    LegacyPublicId:
+      name: public_id
+      in: path
+      required: true
+      description: Existing legacy history identifier (`g:`/`w:`/`t:`/`r:`/`l:`/`c:` prefixes).
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 80
+        pattern: '^(g:[0-9a-f]{64}|w:[0-9a-f]{32}|t:[1-9][0-9]{0,18}|r:[0-9a-f]{64}|l:chat|c:(0|[1-9][0-9]{0,18}))$'
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque keyset cursor from `next_cursor`. Not a stable export cursor across deletions.
+      schema: {type: string, minLength: 1, maxLength: 512, pattern: '^[A-Za-z0-9_-]+$'}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Client-generated UUID that makes a create safe to retry after a lost response. Scoped to the
+        principal. Recommended for every create; without it a retried create can produce a duplicate.
+      schema: {type: string, format: uuid}
+
+  headers:
+    SessionSetCookie:
+      description: '`__Host-brenvio_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax`'
+      schema: {type: string}
+    SessionClearCookie:
+      description: '`__Host-brenvio_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`'
+      schema: {type: string}
+    NoStore:
+      description: Always `no-store`.
+      schema: {type: string, const: no-store}
+    RetryAfter:
+      description: Seconds to wait before repeating the identical request.
+      schema: {type: integer, minimum: 1, maximum: 3600}
+    RequestId:
+      description: Correlation id, equal to `ErrorResponse.request_id`. Contains no user data.
+      schema: {type: string}
+
+  responses:
+    Unauthenticated:
+      description: No valid session, or an invalid one-time login token.
+      headers:
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            unauthenticated: {externalValue: fixtures/errors/unauthenticated.401.json}
+            loginTokenInvalid: {externalValue: fixtures/errors/login-token-invalid.401.json}
+    Forbidden:
+      description: CSRF failure, insufficient role/authorship for a visible resource, or a disabled feature.
+      headers:
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            forbidden: {externalValue: fixtures/errors/forbidden.403.json}
+            csrfFailed: {externalValue: fixtures/errors/csrf-failed.403.json}
+    NotFound:
+      description: The resource does not exist or is not visible to the caller. The two cases are indistinguishable.
+      headers:
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            notFound: {externalValue: fixtures/errors/not-found-foreign-project.404.json}
+    Conflict:
+      description: State conflict. See the operation's `x-error-codes` for the possible codes.
+      headers:
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            staleProject: {externalValue: fixtures/errors/stale-project.409.json}
+    PayloadTooLarge:
+      description: Body exceeds the route limit. When produced by the edge the body may not be JSON.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    InvalidRequest:
+      description: Validation failed. Submitted values are never echoed back.
+      headers:
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            invalidRequest: {externalValue: fixtures/errors/invalid-request.422.json}
+    RateLimited:
+      description: Rate limit or usage quota. Evaluated before any AI work is admitted.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            rateLimited: {externalValue: fixtures/errors/rate-limited.429.json}
+    Unavailable:
+      description: |
+        Outcome not determined or a dependency is unavailable. For `submitMessage` this never means
+        "nothing happened": recover by key. Edge-generated 502/504 responses may not be JSON and must be
+        treated the same way.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+        X-Request-ID: {$ref: '#/components/headers/RequestId'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          examples:
+            temporarilyUnavailable: {externalValue: fixtures/errors/temporarily-unavailable.503.json}
+
+  schemas:
+    # ------------------------------------------------------------------
+    # Common (proposed)
+    # ------------------------------------------------------------------
+    SchemaVersion:
+      x-status: proposed
+      description: Version of the Web API v2 response envelope. Embedded core payloads keep their own `schema_version`.
+      type: string
+      const: web_api.v2
+
+    Timestamp:
+      x-status: proposed
+      description: RFC 3339 timestamp with an explicit UTC offset.
+      type: string
+      format: date-time
+
+    Sha256Hex:
+      x-status: proposed
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+
+    RequestKey:
+      x-status: proposed
+      description: |
+        Client-generated idempotency key: the literal prefix `w-` followed by a lowercase UUIDv7. The prefix
+        keeps web keys disjoint from bot keys (`tg:<actor>:<chat>:<message>`); the value satisfies the
+        existing core pattern `^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`. Keys live in the namespace of the
+        authenticated user and are never reused, also not after receipt expiry.
+      type: string
+      pattern: '^w-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      examples: [w-01939f6c-8a10-7c3e-9b1a-4d5e6f708192]
+
+    ErrorCode:
+      x-status: proposed
+      description: |
+        Allowlisted error codes. The HTTP status, retry policy and meaning of each code are in the root
+        `x-error-catalog`. Codes marked EXISTING there come from `copilot_api.v1` and keep their meaning.
+        The legacy Telegram code `stale_context` (bound to a Telegram chat context version) cannot occur on
+        `/v2`, because the web layer always calls the core with `context_version = None`.
+        The core code `execution_invalid` (HTTP 500 in `copilot_api.v1`) is not exposed either: after it the
+        core receipt is `ambiguous`, which `/v2` reports as the durable state `ambiguous`, not as an error.
+      type: string
+      enum:
+        - unauthenticated
+        - login_token_invalid
+        - csrf_failed
+        - forbidden
+        - feature_disabled
+        - not_found
+        - mentor_explanation_missing
+        - request_conflict
+        - revision_conflict
+        - thread_busy
+        - stale_thread
+        - stale_project
+        - idempotency_conflict
+        - confirmation_changed
+        - confirmation_unavailable
+        - telegram_identity_required
+        - import_source_missing
+        - mentor_not_applicable
+        - result_not_ready
+        - result_format_unsupported
+        - result_gone
+        - payload_too_large
+        - invalid_request
+        - invalid_confirmation
+        - rate_limited
+        - quota_exceeded
+        - temporarily_unavailable
+        - result_corrupted
+        - result_unreadable
+
+    ErrorResponse:
+      x-status: proposed
+      description: |
+        The only error body of `/v2`. It never echoes submitted values and has no free-text message: the UI
+        maps `code` to localized text. `owned_site` mirrors the existing `copilot_api.v1` error field and is
+        present only for owned-site confirmation errors.
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, code, request_id]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        kind: {type: string, const: ERROR}
+        code: {$ref: '#/components/schemas/ErrorCode'}
+        request_id:
+          description: Server correlation id for support. Contains no user data.
+          type: string
+          pattern: '^[A-Za-z0-9_-]{8,64}$'
+        retry_after_seconds:
+          description: Mirror of the `Retry-After` header when the request may be repeated unchanged.
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 3600
+        owned_site:
+          oneOf:
+            - {$ref: '#/components/schemas/OwnedSiteResult'}
+            - {type: 'null'}
+
+    Role:
+      x-status: proposed
+      description: |
+        Organization-level role. `owner` > `editor` > `viewer`. There are no project-level roles in this
+        contract. "author" in `x-min-role` means `message.created_by == principal` AND role `editor` or higher.
+      type: string
+      enum: [owner, editor, viewer]
+
+    UserRef:
+      x-status: proposed
+      description: Minimal public reference to a user inside a tenant. Never contains a Telegram identifier or e-mail.
+      type: object
+      additionalProperties: false
+      required: [id, display_name, is_self]
+      properties:
+        id: {type: integer, minimum: 1, description: Internal `users.id` (the single principal for web and Telegram).}
+        display_name: {type: [string, 'null'], maxLength: 255}
+        is_self: {type: boolean}
+
+    # ------------------------------------------------------------------
+    # Identity & authentication (proposed)
+    # ------------------------------------------------------------------
+    TelegramExchangeRequest:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          description: One-time login token taken from the URL fragment. Never logged, never placed in a query string.
+          type: string
+          minLength: 32
+          maxLength: 256
+          pattern: '^[A-Za-z0-9_-]+$'
+
+    CsrfToken:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, csrf_token]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        csrf_token: {type: string, minLength: 32, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$'}
+
+    AuthSession:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, csrf_token, me]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        csrf_token: {type: string, minLength: 32, maxLength: 256, pattern: '^[A-Za-z0-9_-]+$'}
+        me: {$ref: '#/components/schemas/Me'}
+
+    Me:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, user, identities, memberships, session, features]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        user: {$ref: '#/components/schemas/User'}
+        identities:
+          type: array
+          maxItems: 8
+          items: {$ref: '#/components/schemas/Identity'}
+        memberships:
+          description: Active memberships only. Internal beta - exactly one personal organization.
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/OrganizationMembership'}
+        session: {$ref: '#/components/schemas/SessionInfo'}
+        features: {$ref: '#/components/schemas/Features'}
+
+    User:
+      x-status: proposed
+      description: |
+        `users.id` is the single internal principal for both channels (D2). `users.telegram_id` becomes
+        nullable; a web-only user never gets an invented Telegram id. Telegram ids are not exposed here.
+      type: object
+      additionalProperties: false
+      required: [id, display_name, created_at]
+      properties:
+        id: {type: integer, minimum: 1}
+        display_name: {type: [string, 'null'], maxLength: 255}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+
+    Identity:
+      x-status: proposed
+      description: One row of `external_identities`. The provider subject (Telegram id, e-mail, OIDC sub) is not returned.
+      type: object
+      additionalProperties: false
+      required: [provider, linked_at]
+      properties:
+        provider:
+          description: Internal beta issues only `telegram`. `email` and `oidc` are reserved for B2e and later.
+          type: string
+          enum: [telegram, email, oidc]
+        linked_at: {$ref: '#/components/schemas/Timestamp'}
+
+    SessionInfo:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [issued_at, idle_expires_at, absolute_expires_at]
+      properties:
+        issued_at: {$ref: '#/components/schemas/Timestamp'}
+        idle_expires_at: {$ref: '#/components/schemas/Timestamp'}
+        absolute_expires_at: {$ref: '#/components/schemas/Timestamp'}
+
+    Features:
+      x-status: proposed
+      description: |
+        Server-evaluated capability flags for this principal. The UI must not present a capability as
+        working when its flag is false. Capability matrix - README, "Capability matrix".
+      type: object
+      additionalProperties: false
+      required: [copilot_requests, mentor, telegram_history, web_chat, team_organizations, email_login, brand_reimport, documents]
+      properties:
+        copilot_requests: {type: boolean, description: 'Structured Copilot scenarios (strategy, competitor/positioning, calculation).'}
+        mentor: {type: boolean}
+        telegram_history: {type: boolean, description: True only when the principal has a Telegram identity and B11 is enabled.}
+        web_chat: {type: boolean, description: '`WEB_CHAT_ENABLED`. False in the internal technical beta.'}
+        team_organizations: {type: boolean, description: B10. False in the internal technical beta.}
+        email_login: {type: boolean, description: '`WEB_EMAIL_LOGIN_ENABLED` (B2e). False in the internal technical beta.'}
+        brand_reimport: {type: boolean, description: '`WEB_BRAND_REIMPORT_ENABLED`. False until OQ-1 is decided.'}
+        documents: {type: boolean, description: Always false in this contract; the Documents section stays mock-only.}
+
+    # ------------------------------------------------------------------
+    # Organizations & projects (proposed)
+    # ------------------------------------------------------------------
+    Organization:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 120}
+        kind: {type: string, enum: [personal, team]}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+
+    OrganizationMembership:
+      x-status: proposed
+      description: |
+        An ACTIVE row of `memberships` (`revoked_at IS NULL`). `memberships.version` is internal: it is
+        incremented on every role change or revocation and is used for the access recheck; it is not exposed.
+      type: object
+      additionalProperties: false
+      required: [organization, role, joined_at]
+      properties:
+        organization: {$ref: '#/components/schemas/Organization'}
+        role: {$ref: '#/components/schemas/Role'}
+        joined_at: {$ref: '#/components/schemas/Timestamp'}
+
+    OrganizationList:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, items]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/OrganizationMembership'}
+
+    ProjectStatus:
+      x-status: proposed
+      type: string
+      enum: [active, draft, archived]
+
+    ProjectColor:
+      x-status: proposed
+      description: UI accent only. Stored on `projects`, never part of the model context.
+      type: string
+      enum: [teal, violet, coral, amber, blue, green]
+
+    ProjectPermissions:
+      x-status: proposed
+      description: Server-computed for the caller. The UI renders from these and still handles `403`.
+      type: object
+      additionalProperties: false
+      required: [can_edit, can_submit, can_import_telegram_brand]
+      properties:
+        can_edit: {type: boolean}
+        can_submit: {type: boolean}
+        can_import_telegram_brand: {type: boolean}
+
+    Project:
+      x-status: proposed
+      description: |
+        A SaaS project. It belongs to exactly one organization (`org_id`) for its whole life; ownership is the
+        organization's, not the creator's. NOT the legacy Telegram "projects" (history navigation).
+      type: object
+      additionalProperties: false
+      required: [schema_version, id, org_id, name, status, color, version, role, permissions, created_by, created_at, updated_at, brand]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        id: {type: string, format: uuid}
+        org_id: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 120}
+        status: {$ref: '#/components/schemas/ProjectStatus'}
+        color:
+          oneOf:
+            - {$ref: '#/components/schemas/ProjectColor'}
+            - {type: 'null'}
+        version: {type: integer, minimum: 1, description: Optimistic concurrency token of the project row.}
+        role: {$ref: '#/components/schemas/Role'}
+        permissions: {$ref: '#/components/schemas/ProjectPermissions'}
+        created_by: {$ref: '#/components/schemas/UserRef'}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        updated_at: {$ref: '#/components/schemas/Timestamp'}
+        brand: {$ref: '#/components/schemas/ProjectBrand'}
+
+    ProjectList:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, items, next_cursor]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/Project'}
+        next_cursor: {type: [string, 'null'], maxLength: 512}
+
+    ProjectCreate:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        status: {type: string, enum: [active, draft], default: active}
+        color:
+          oneOf:
+            - {$ref: '#/components/schemas/ProjectColor'}
+            - {type: 'null'}
+        brand: {$ref: '#/components/schemas/ProjectBrandFields'}
+
+    ProjectPatch:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      minProperties: 2
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        name: {type: string, minLength: 1, maxLength: 120}
+        status: {$ref: '#/components/schemas/ProjectStatus'}
+        color:
+          oneOf:
+            - {$ref: '#/components/schemas/ProjectColor'}
+            - {type: 'null'}
+
+    BrandExtra:
+      x-status: proposed
+      description: |
+        Allowlisted keys stored in `project_brands.extra_json`. No other key is accepted or returned.
+
+        * `industry`, `usp`, `competitors` - descriptive UI fields. The existing `brand_entries` mapping does
+          not pass them to the model today.
+        * `customer_job_or_need`, `relevant_alternative`, `product_truth`, `existing_proof`, `geography`,
+          `economics` - scalar business fields the existing `brand_entries` mapping DOES pass to the core as
+          brand-layer context when present. `product_truth` is an owner attestation: set it only from an
+          explicit user statement, never from scraped or generated text.
+      type: object
+      additionalProperties: false
+      properties:
+        industry: {type: [string, 'null'], maxLength: 200}
+        usp: {type: [string, 'null'], maxLength: 4000}
+        competitors:
+          type: [array, 'null']
+          maxItems: 10
+          items: {type: string, minLength: 1, maxLength: 300}
+        customer_job_or_need: {type: [string, 'null'], maxLength: 4000}
+        relevant_alternative: {type: [string, 'null'], maxLength: 4000}
+        product_truth: {type: [string, 'null'], maxLength: 4000}
+        existing_proof: {type: [string, 'null'], maxLength: 4000}
+        geography: {type: [string, 'null'], maxLength: 4000}
+        economics: {type: [string, 'null'], maxLength: 4000}
+
+    ProjectBrandFields:
+      x-status: proposed
+      description: |
+        Editable brand fields. Names and types of the first six mirror the existing `BrandProfile` columns so
+        the existing pure functions (`to_context`, `brand_entries`) work unchanged through an adapter.
+        Bounds follow what `brand_entries` accepts today (text up to 4000 characters, at most 10 goals).
+      type: object
+      additionalProperties: false
+      properties:
+        brand_name: {type: [string, 'null'], maxLength: 255}
+        product_description: {type: [string, 'null'], maxLength: 4000}
+        audience: {type: [string, 'null'], maxLength: 4000}
+        tone: {type: [string, 'null'], maxLength: 4000}
+        goals:
+          type: [array, 'null']
+          maxItems: 10
+          items: {type: string, minLength: 1, maxLength: 300}
+        channels:
+          type: [array, 'null']
+          maxItems: 20
+          items: {type: string, minLength: 1, maxLength: 100}
+        extra: {$ref: '#/components/schemas/BrandExtra'}
+
+    BrandImportProvenance:
+      x-status: proposed
+      description: Provenance of the last copy from the legacy Telegram profile. The legacy row id is not exposed.
+      type: object
+      additionalProperties: false
+      required: [source, imported_at, imported_by]
+      properties:
+        source: {type: string, const: telegram_brand_profile}
+        imported_at: {$ref: '#/components/schemas/Timestamp'}
+        imported_by: {$ref: '#/components/schemas/UserRef'}
+
+    ProjectBrand:
+      x-status: proposed
+      description: |
+        The single `project_brands` row of a project (exactly one per project, cascade-deleted with it).
+        A separate table: the legacy `brand_profiles` table, its `UNIQUE(user_id)` and
+        `User.brand_profile` keep their current ORM semantics and are used by Telegram only.
+      type: object
+      additionalProperties: false
+      required: [schema_version, project_id, version, brand_name, product_description, audience, tone, goals, channels, extra, imported_from, updated_at, updated_by]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        project_id: {type: string, format: uuid}
+        version: {type: integer, minimum: 1, description: Optimistic concurrency token of the brand row.}
+        brand_name: {type: [string, 'null'], maxLength: 255}
+        product_description: {type: [string, 'null'], maxLength: 4000}
+        audience: {type: [string, 'null'], maxLength: 4000}
+        tone: {type: [string, 'null'], maxLength: 4000}
+        goals:
+          type: array
+          maxItems: 10
+          items: {type: string, minLength: 1, maxLength: 300}
+        channels:
+          type: array
+          maxItems: 20
+          items: {type: string, minLength: 1, maxLength: 100}
+        extra: {$ref: '#/components/schemas/BrandExtra'}
+        imported_from:
+          oneOf:
+            - {$ref: '#/components/schemas/BrandImportProvenance'}
+            - {type: 'null'}
+        updated_at: {$ref: '#/components/schemas/Timestamp'}
+        updated_by:
+          oneOf:
+            - {$ref: '#/components/schemas/UserRef'}
+            - {type: 'null'}
+
+    ProjectBrandPatch:
+      x-status: proposed
+      description: Omitted = unchanged, `null` = cleared. `extra` is merged key by key.
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      minProperties: 2
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        brand_name: {type: [string, 'null'], maxLength: 255}
+        product_description: {type: [string, 'null'], maxLength: 4000}
+        audience: {type: [string, 'null'], maxLength: 4000}
+        tone: {type: [string, 'null'], maxLength: 4000}
+        goals:
+          type: [array, 'null']
+          maxItems: 10
+          items: {type: string, minLength: 1, maxLength: 300}
+        channels:
+          type: [array, 'null']
+          maxItems: 20
+          items: {type: string, minLength: 1, maxLength: 100}
+        extra: {$ref: '#/components/schemas/BrandExtra'}
+
+    BrandImportRequest:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [expected_version, confirm_overwrite]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        confirm_overwrite:
+          description: Literal `true`. The caller acknowledges that the current brand fields are replaced by the copy.
+          type: boolean
+          const: true
+
+    # ------------------------------------------------------------------
+    # Workspace: threads and messages (proposed)
+    # ------------------------------------------------------------------
+    ThreadKind:
+      x-status: proposed
+      description: '`copilot` - structured Copilot requests (internal beta). `chat` - FUTURE web chat (B9).'
+      type: string
+      enum: [copilot, chat]
+
+    ExecutionState:
+      x-status: proposed
+      description: |
+        State of one request revision (`thread_messages.state`). The core is authoritative until a snapshot
+        exists; afterwards the snapshot is.
+
+        | state | meaning | durable result |
+        | --- | --- | --- |
+        | `pending` | Stored by the web layer; core admission not confirmed. | no |
+        | `running` | Admitted by the core; computing (synchronous call elsewhere or workflow graph). | no |
+        | `needs_input` | Core asked for clarification. Terminal for THIS revision; answer with revision + 1 and the same key. | `NEEDS_INPUT` |
+        | `completed` | Finished. | `DIRECT_RESULT`, `MODULE_RESULT` or `RUN` |
+        | `completed_with_limitations` | Workflow finished with optional parts missing. | `RUN` |
+        | `blocked` | Workflow needs context or an accessible source. | `RUN` with `failure` |
+        | `failed` | Workflow failed. | `RUN` with `failure` |
+        | `ambiguous` | Outcome unknown after admission. Never re-executed automatically. | none |
+        | `expired` | No result exists and none can be obtained under this key. Never regenerated. | none |
+        | `unsupported` | The core classified the request as free conversation and web chat is disabled. | `UNSUPPORTED` |
+      type: string
+      enum: [pending, running, needs_input, completed, completed_with_limitations, blocked, failed, ambiguous, expired, unsupported]
+
+    StateReason:
+      x-status: proposed
+      description: |
+        Detail for `expired`. `receipt_expired` - the core receipt passed its 30-day retention before the
+        result was materialized. `never_admitted` - the message was stored but the core never admitted it
+        within the admission window, and the key was closed.
+      type: [string, 'null']
+      enum: [receipt_expired, never_admitted, null]
+
+    NextAction:
+      x-status: proposed
+      description: |
+        Server-authoritative instruction for the CALLER; the client does not re-derive the state machine.
+
+        * `none` - nothing to do.
+        * `poll` - call `getMessage` again after `poll_after_ms`.
+        * `resubmit_same_key` - author only: repeat the identical `submitMessage` (same key, revision, payload).
+        * `answer_clarification` - author only: submit revision + 1 with the same key and added context.
+        * `start_new_request` - nothing more can happen under this key. A new request needs a NEW key and an
+          explicit user action, with a visible note that it may generate again.
+        * `wait_for_author` - the caller is not the author; only the author can move this request forward.
+      type: string
+      enum: [none, poll, resubmit_same_key, answer_clarification, start_new_request, wait_for_author]
+
+    InFlightRef:
+      x-status: proposed
+      description: The request that holds the thread's single execution slot.
+      type: object
+      additionalProperties: false
+      required: [message_id, request_key, revision, state, started_at]
+      properties:
+        message_id: {type: string, format: uuid}
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        revision: {type: integer, minimum: 1, maximum: 20}
+        state: {type: string, enum: [pending, running]}
+        started_at: {$ref: '#/components/schemas/Timestamp'}
+
+    ThreadPermissions:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [can_submit, can_remove]
+      properties:
+        can_submit: {type: boolean, description: 'Role allows it, the thread kind is enabled and no other request is in flight.'}
+        can_remove: {type: boolean}
+
+    Thread:
+      x-status: proposed
+      description: |
+        A project-scoped container (`workspace_threads`). `org_id` / `project_id` never change. Threads,
+        messages and snapshots are PROJECT material; the core records they point to stay owned by the author.
+      type: object
+      additionalProperties: false
+      required: [schema_version, id, org_id, project_id, kind, title, created_by, created_at, updated_at, last_seq, in_flight, permissions]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        id: {type: string, format: uuid}
+        org_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/ThreadKind'}
+        title: {type: string, minLength: 1, maxLength: 200}
+        created_by: {$ref: '#/components/schemas/UserRef'}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        updated_at: {$ref: '#/components/schemas/Timestamp'}
+        last_seq: {type: integer, format: int64, minimum: 0}
+        in_flight:
+          oneOf:
+            - {$ref: '#/components/schemas/InFlightRef'}
+            - {type: 'null'}
+        permissions: {$ref: '#/components/schemas/ThreadPermissions'}
+
+    ThreadCreate:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {$ref: '#/components/schemas/ThreadKind'}
+        title:
+          description: Optional. Without it the server derives a bounded title from the first message.
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    ThreadList:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, items, next_cursor]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/Thread'}
+        next_cursor: {type: [string, 'null'], maxLength: 512}
+
+    SubmitMessageRequest:
+      x-status: proposed
+      description: |
+        `request_key` + `revision` plus the fields of the existing `ExecuteRequest` (same names, types and
+        bounds). Differences from `copilot_api.v1`: there is no `context_version` (a Telegram chat concept;
+        the web layer always passes `None`), `request_key` is restricted to the web format, and `revision`
+        is new. Extra fields are rejected. Serialized body budget 128 KiB (existing DTO budget).
+      type: object
+      additionalProperties: false
+      required: [request_key, revision, message]
+      properties:
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        revision:
+          description: 1 for a new request; previous + 1 when answering `needs_input` under the same key.
+          type: integer
+          minimum: 1
+          maximum: 20
+        message: {type: string, minLength: 1, maxLength: 12000, description: Must contain a non-blank character. Unchanged across revisions.}
+        context: {$ref: '#/components/schemas/BusinessContext'}
+        owned_site_url: {type: [string, 'null'], minLength: 1, maxLength: 2048}
+        competitor_urls:
+          type: array
+          maxItems: 3
+          items: {type: string, minLength: 1, maxLength: 2048}
+        market_source_urls:
+          type: array
+          maxItems: 3
+          items: {type: string, minLength: 1, maxLength: 2048}
+        market_sources:
+          type: array
+          maxItems: 8
+          items: {$ref: '#/components/schemas/MarketSource'}
+        confirmation:
+          description: Requires `owned_site_url` (existing rule).
+          oneOf:
+            - {$ref: '#/components/schemas/Confirmation'}
+            - {type: 'null'}
+
+    SubmittedInput:
+      x-status: proposed
+      description: |
+        The accepted request exactly as submitted (without `request_key` / `revision`): fields the client
+        omitted stay omitted, because "omitted" and "explicitly empty" differ in the core's precedence rules
+        and in the payload fingerprint. Lets any device rebuild the identical payload for a safe resubmit or
+        extend it for a clarification. Visible to every member who can read the thread: what is submitted to
+        a project thread is project material.
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: {type: string, minLength: 1, maxLength: 12000}
+        context: {$ref: '#/components/schemas/BusinessContext'}
+        owned_site_url: {type: [string, 'null'], minLength: 1, maxLength: 2048}
+        competitor_urls:
+          type: array
+          maxItems: 3
+          items: {type: string, minLength: 1, maxLength: 2048}
+        market_source_urls:
+          type: array
+          maxItems: 3
+          items: {type: string, minLength: 1, maxLength: 2048}
+        market_sources:
+          type: array
+          maxItems: 8
+          items: {$ref: '#/components/schemas/MarketSource'}
+        confirmation:
+          oneOf:
+            - {$ref: '#/components/schemas/Confirmation'}
+            - {type: 'null'}
+
+    UserMessage:
+      x-status: proposed
+      description: One request revision (`thread_messages`, role `user`). Unique per `(created_by, request_key, revision)`.
+      type: object
+      additionalProperties: false
+      required: [id, thread_id, seq, role, created_at, author, request_key, revision, is_latest_revision, text, input, state, state_reason]
+      properties:
+        id: {type: string, format: uuid}
+        thread_id: {type: string, format: uuid}
+        seq: {type: integer, format: int64, minimum: 1}
+        role: {type: string, const: user}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        author: {$ref: '#/components/schemas/UserRef'}
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        revision: {type: integer, minimum: 1, maximum: 20}
+        is_latest_revision: {type: boolean}
+        text: {type: string, minLength: 1, maxLength: 12000, description: The user's message text (equals `input.message` in Copilot threads).}
+        input:
+          description: Null only in FUTURE chat threads.
+          oneOf:
+            - {$ref: '#/components/schemas/SubmittedInput'}
+            - {type: 'null'}
+        state: {$ref: '#/components/schemas/ExecutionState'}
+        state_reason: {$ref: '#/components/schemas/StateReason'}
+
+    ResultStatus:
+      x-status: proposed
+      description: |
+        Whether the stored snapshot can be presented.
+        `available` - `result` is present. `corrupted` - integrity hash mismatch (data damage).
+        `format_unsupported` - intact, but no decoder for its `schema_version` (compatibility, not damage).
+        `unreadable` - intact, decoder defect on the server.
+      type: string
+      enum: [available, corrupted, format_unsupported, unreadable]
+
+    AssistantMessage:
+      x-status: proposed
+      description: The reply to one request revision (`thread_messages`, role `assistant`); exists only together with a snapshot.
+      type: object
+      additionalProperties: false
+      required: [id, thread_id, seq, role, created_at, reply_to, request_key, revision, result_status, result]
+      properties:
+        id: {type: string, format: uuid}
+        thread_id: {type: string, format: uuid}
+        seq: {type: integer, format: int64, minimum: 1}
+        role: {type: string, const: assistant}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        reply_to: {type: string, format: uuid, description: Id of the user message this replies to.}
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        revision: {type: integer, minimum: 1, maximum: 20}
+        result_status: {$ref: '#/components/schemas/ResultStatus'}
+        result:
+          description: Present exactly when `result_status` is `available`.
+          oneOf:
+            - {$ref: '#/components/schemas/ResultSnapshot'}
+            - {type: 'null'}
+
+    ThreadMessage:
+      x-status: proposed
+      oneOf:
+        - {$ref: '#/components/schemas/UserMessage'}
+        - {$ref: '#/components/schemas/AssistantMessage'}
+      discriminator:
+        propertyName: role
+        mapping:
+          user: '#/components/schemas/UserMessage'
+          assistant: '#/components/schemas/AssistantMessage'
+
+    ThreadMessagesPage:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, thread, items, prev_before_seq]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        thread: {$ref: '#/components/schemas/Thread'}
+        items:
+          description: Ascending by `seq`.
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/ThreadMessage'}
+        prev_before_seq:
+          description: Pass as `before_seq` to load older messages; null when the first message is included.
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
+
+    MessageResult:
+      x-status: proposed
+      description: |
+        A request revision, its execution state and, once durable, its reply. Returned by `submitMessage`,
+        `getRequestByKey` and `getMessage`. `state` always equals `user_message.state`.
+      type: object
+      additionalProperties: false
+      required: [schema_version, thread_id, project_id, state, next_action, poll_after_ms, user_message, assistant_message, live_run]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        thread_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        state: {$ref: '#/components/schemas/ExecutionState'}
+        next_action: {$ref: '#/components/schemas/NextAction'}
+        poll_after_ms:
+          description: Non-null exactly when `next_action` is `poll`.
+          type: [integer, 'null']
+          minimum: 500
+          maximum: 60000
+        user_message: {$ref: '#/components/schemas/UserMessage'}
+        assistant_message:
+          oneOf:
+            - {$ref: '#/components/schemas/AssistantMessage'}
+            - {type: 'null'}
+        live_run:
+          description: |
+            NON-DURABLE projection of a running workflow (existing `RunResponse`). Only while `state` is
+            `running` and the core record is a graph run; null otherwise. Never stored by the web layer.
+          oneOf:
+            - {$ref: '#/components/schemas/RunResponse'}
+            - {type: 'null'}
+
+    # ------------------------------------------------------------------
+    # Durable result snapshots (proposed envelope, existing payloads)
+    # ------------------------------------------------------------------
+    SnapshotProvenance:
+      x-status: proposed
+      description: |
+        Where the snapshot came from. The core receipt id is internal and not exposed. `run_id` is present
+        for graph runs only; it is an identifier for support, never an address in this API.
+      type: object
+      additionalProperties: false
+      required: [source_kind, run_id, request_key, revision, created_by, source_completed_at, materialized_at]
+      properties:
+        source_kind:
+          description: '`receipt` - synchronous core receipt. `graph_run` - core workflow run. `web_chat_receipt` - FUTURE.'
+          type: string
+          enum: [receipt, graph_run, web_chat_receipt]
+        run_id:
+          oneOf:
+            - {$ref: '#/components/schemas/Sha256Hex'}
+            - {type: 'null'}
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        revision: {type: integer, minimum: 1, maximum: 20}
+        created_by: {$ref: '#/components/schemas/UserRef'}
+        source_completed_at:
+          description: When the core finished, if known.
+          oneOf:
+            - {$ref: '#/components/schemas/Timestamp'}
+            - {type: 'null'}
+        materialized_at: {$ref: '#/components/schemas/Timestamp'}
+
+    SnapshotDecoding:
+      x-status: proposed
+      description: Which frozen decoder and upcasters produced `payload` for this response. Diagnostic only.
+      type: object
+      additionalProperties: false
+      required: [decoder, upcasters]
+      properties:
+        decoder: {type: string, maxLength: 120, examples: ['copilot_api.v1/RUN']}
+        upcasters:
+          description: Applied in order; empty while the stored format is the presented format.
+          type: array
+          maxItems: 16
+          items: {type: string, maxLength: 120}
+
+    ResultSnapshot:
+      x-status: proposed
+      description: |
+        Immutable snapshot envelope (`result_snapshots`, INSERT-only, one per reply). Envelope fields:
+
+        * `envelope_version` - format of the envelope itself (1).
+        * `schema_version` - contract of `payload` at WRITE time. The stored payload is never re-validated
+          against the live DTO; it is read by the frozen decoder registered for
+          `(schema_version, result_kind)` and upcast to the current presentation.
+        * `writer_version` - backend build that wrote the row.
+        * `payload_sha256` - `sha256` of the canonical JSON of the STORED payload (UTF-8, keys sorted,
+          separators `,` and `:`, no ASCII escaping, no NaN/Infinity). Integrity is checked independently of
+          format compatibility.
+        * `payload` - the presented payload. While no upcaster applies it is byte-equivalent to the stored one.
+      oneOf:
+        - {$ref: '#/components/schemas/DirectResultSnapshot'}
+        - {$ref: '#/components/schemas/ModuleResultSnapshot'}
+        - {$ref: '#/components/schemas/NeedsInputSnapshot'}
+        - {$ref: '#/components/schemas/RunSnapshot'}
+        - {$ref: '#/components/schemas/UnsupportedSnapshot'}
+        - {$ref: '#/components/schemas/ChatReplySnapshot'}
+      discriminator:
+        propertyName: result_kind
+        mapping:
+          DIRECT_RESULT: '#/components/schemas/DirectResultSnapshot'
+          MODULE_RESULT: '#/components/schemas/ModuleResultSnapshot'
+          NEEDS_INPUT: '#/components/schemas/NeedsInputSnapshot'
+          RUN: '#/components/schemas/RunSnapshot'
+          UNSUPPORTED: '#/components/schemas/UnsupportedSnapshot'
+          CHAT_REPLY: '#/components/schemas/ChatReplySnapshot'
+
+    DirectResultSnapshot:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [copilot_api.v1]}
+        result_kind: {type: string, const: DIRECT_RESULT}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/DirectResponse'}
+
+    ModuleResultSnapshot:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [copilot_api.v1]}
+        result_kind: {type: string, const: MODULE_RESULT}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/ModuleResponse'}
+
+    NeedsInputSnapshot:
+      x-status: proposed
+      description: |
+        Stored immediately, because the core receipt is OVERWRITTEN when the clarification revision is
+        admitted; without this snapshot the question would be lost.
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [copilot_api.v1]}
+        result_kind: {type: string, const: NEEDS_INPUT}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/NeedsInputResponse'}
+
+    RunSnapshot:
+      x-status: proposed
+      description: Written once when the workflow reaches a terminal status (`COMPLETED`, `COMPLETED_WITH_LIMITATIONS`, `BLOCKED`, `FAILED`).
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [copilot_api.v1]}
+        result_kind: {type: string, const: RUN}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/RunResponse'}
+
+    UnsupportedSnapshot:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [web_api.v2]}
+        result_kind: {type: string, const: UNSUPPORTED}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/UnsupportedResult'}
+
+    ChatReplySnapshot:
+      x-status: future
+      description: FUTURE (B9). Reserved so that adding web chat does not change the envelope.
+      type: object
+      additionalProperties: false
+      required: [id, message_id, envelope_version, schema_version, result_kind, writer_version, payload_sha256, provenance, decoded_with, payload]
+      properties:
+        id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        envelope_version: {type: integer, const: 1}
+        schema_version: {type: string, enum: [web_chat.v1]}
+        result_kind: {type: string, const: CHAT_REPLY}
+        writer_version: {type: string, minLength: 1, maxLength: 80}
+        payload_sha256: {$ref: '#/components/schemas/Sha256Hex'}
+        provenance: {$ref: '#/components/schemas/SnapshotProvenance'}
+        decoded_with: {$ref: '#/components/schemas/SnapshotDecoding'}
+        payload: {$ref: '#/components/schemas/WebChatReply'}
+
+    UnsupportedResult:
+      x-status: proposed
+      description: |
+        Honest terminal answer when the core returns the existing `CONVERSATION` delegation
+        (`delegate: legacy_chat`) and web chat is disabled. The web layer does NOT call the Telegram chat.
+        The UI shows its own localized text and scenario suggestions; no text is stored here.
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, reason]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        kind: {type: string, const: UNSUPPORTED}
+        reason:
+          type: string
+          enum: [conversation_not_available]
+
+    # ------------------------------------------------------------------
+    # FUTURE web chat (B9) - reserved shapes, not frozen
+    # ------------------------------------------------------------------
+    SubmitChatMessageRequest:
+      x-status: future
+      type: object
+      additionalProperties: false
+      required: [request_key, text, expected_last_seq]
+      properties:
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        text: {type: string, minLength: 1, maxLength: 4000}
+        expected_last_seq:
+          description: '`Thread.last_seq` the client composed against. A mismatch is `409 stale_thread`.'
+          type: integer
+          format: int64
+          minimum: 0
+
+    WebChatReply:
+      x-status: future
+      description: |
+        Draft of `web_chat.v1`. An allowlisted projection of the existing `ChatMessageResponse`: `reply` and
+        `follow_up_question` only. `debug` and `image` are never exposed. The legacy untyped `actions` list
+        is intentionally not mapped until B9 defines a typed shape.
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, reply, follow_up_question]
+      properties:
+        schema_version: {type: string, const: web_chat.v1}
+        kind: {type: string, const: CHAT_REPLY}
+        reply: {type: string, minLength: 1, maxLength: 16000}
+        follow_up_question: {type: [string, 'null'], maxLength: 4000}
+
+    # ------------------------------------------------------------------
+    # EXISTING Copilot DTOs - verbatim projection of
+    # app/marketing_copilot/api_contracts.py @ 76b6c1b. Do not edit here.
+    # All are strict (extra fields forbidden, no coercion).
+    # ------------------------------------------------------------------
+    BusinessContext:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::BusinessContext
+      description: Typed explicit business context. Explicit values, including empty/null masks, outrank the brand.
+      type: object
+      additionalProperties: false
+      properties:
+        business_goal: {type: [string, 'null'], maxLength: 4000}
+        product: {type: [string, 'null'], maxLength: 4000}
+        target: {type: [string, 'null'], maxLength: 4000}
+        customer_job_or_need: {type: [string, 'null'], maxLength: 4000}
+        relevant_alternative: {type: [string, 'null'], maxLength: 4000}
+        product_truth: {type: [string, 'null'], maxLength: 4000}
+        existing_proof: {type: [string, 'null'], maxLength: 4000}
+        geography: {type: [string, 'null'], maxLength: 4000}
+        economics: {type: [string, 'null'], maxLength: 4000}
+        message: {type: [string, 'null'], maxLength: 4000}
+        tone: {type: [string, 'null'], maxLength: 4000}
+
+    MarketSource:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::MarketSource
+      type: object
+      additionalProperties: false
+      required: [title, excerpt]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        excerpt: {type: string, minLength: 1, maxLength: 8000}
+
+    Confirmation:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Confirmation
+      description: Explicit attestation of owned-site statements. `statement_ids` must be unique.
+      type: object
+      additionalProperties: false
+      required: [snapshot_id, statement_ids, confirmed, reference]
+      properties:
+        snapshot_id: {type: string, pattern: '^[a-z][a-z0-9_.-]{0,127}$'}
+        statement_ids:
+          type: array
+          minItems: 1
+          maxItems: 30
+          uniqueItems: true
+          items: {type: string, pattern: '^[a-z][a-z0-9_.-]{0,127}$'}
+        confirmed: {type: boolean, const: true}
+        reference: {type: string, minLength: 1, maxLength: 300}
+
+    ConfirmationCandidate:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::ConfirmationCandidate
+      type: object
+      additionalProperties: false
+      required: [statement_id, field, statement, source_url]
+      properties:
+        statement_id: {type: string, pattern: '^[a-z][a-z0-9_.-]{0,127}$'}
+        field:
+          type: string
+          enum: [stated_product_service, stated_features_capabilities, stated_value_propositions]
+        statement: {type: string, maxLength: 4000}
+        source_url: {type: string, minLength: 1, maxLength: 2048}
+        trust: {type: string, const: site_claim}
+
+    OwnedSiteResult:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::OwnedSiteResult
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [ACQUIRED, UNSAFE_SOURCE, SOURCE_UNAVAILABLE, EMPTY_CONTENT, CAPABILITY_UNAVAILABLE, INVALID_EXTRACTION]
+        snapshot_id: {type: [string, 'null'], pattern: '^[a-z][a-z0-9_.-]{0,127}$'}
+        candidates:
+          type: array
+          maxItems: 30
+          items: {$ref: '#/components/schemas/ConfirmationCandidate'}
+
+    Finding:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Finding
+      type: object
+      additionalProperties: false
+      required: [topic, text, kind, confidence]
+      properties:
+        topic: {type: string, minLength: 1, maxLength: 300}
+        text: {type: string, maxLength: 4000}
+        kind: {type: string, enum: [OBSERVATION, INFERENCE, HYPOTHESIS, RECOMMENDATION]}
+        confidence: {type: string, enum: [UNKNOWN, LOW, MEDIUM, HIGH]}
+
+    SourceSummary:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::SourceSummary
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label: {type: string, minLength: 1, maxLength: 300}
+        url: {type: [string, 'null'], minLength: 1, maxLength: 2048}
+
+    Findings:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Findings
+      type: object
+      additionalProperties: false
+      required: [kind, findings]
+      properties:
+        kind: {type: string, enum: [competitor_analysis, market_analysis, positioning]}
+        findings:
+          type: array
+          maxItems: 32
+          items: {$ref: '#/components/schemas/Finding'}
+        sources:
+          type: array
+          maxItems: 64
+          items: {$ref: '#/components/schemas/SourceSummary'}
+        limitations:
+          type: array
+          maxItems: 64
+          items: {type: string, maxLength: 4000}
+
+    Post:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Post
+      type: object
+      additionalProperties: false
+      required: [headline, body, cta]
+      properties:
+        kind: {type: string, const: post}
+        headline: {type: string, maxLength: 4000}
+        body: {type: string, maxLength: 4000}
+        cta: {type: string, maxLength: 4000}
+        limitations:
+          type: array
+          maxItems: 64
+          items: {type: string, maxLength: 4000}
+
+    StrategySection:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::StrategySection
+      type: object
+      additionalProperties: false
+      required: [text, items]
+      properties:
+        text: {type: string, maxLength: 4000}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: {type: string, minLength: 1, maxLength: 300}
+        numeric_context:
+          type: array
+          maxItems: 3
+          items: {type: string, maxLength: 4000}
+
+    Strategy:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Strategy
+      type: object
+      additionalProperties: false
+      required: [strategic_diagnosis, main_growth_constraint, strategic_priorities, trade_offs, resource_priorities, strategic_bets, roadmap, risks, decision_triggers]
+      properties:
+        strategic_diagnosis: {$ref: '#/components/schemas/StrategySection'}
+        main_growth_constraint: {$ref: '#/components/schemas/StrategySection'}
+        strategic_priorities: {$ref: '#/components/schemas/StrategySection'}
+        trade_offs: {$ref: '#/components/schemas/StrategySection'}
+        resource_priorities: {$ref: '#/components/schemas/StrategySection'}
+        strategic_bets: {$ref: '#/components/schemas/StrategySection'}
+        roadmap: {$ref: '#/components/schemas/StrategySection'}
+        risks: {$ref: '#/components/schemas/StrategySection'}
+        decision_triggers: {$ref: '#/components/schemas/StrategySection'}
+        limitations:
+          type: array
+          maxItems: 64
+          items: {type: string, maxLength: 4000}
+
+    Experiment:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Experiment
+      type: object
+      additionalProperties: false
+      required: [hypothesis, target_metric, intervention, expected_signal, failure_condition, minimum_required_inputs, time_resource_constraints]
+      properties:
+        hypothesis: {type: string, minLength: 1, maxLength: 300}
+        target_metric: {type: string, minLength: 1, maxLength: 300}
+        intervention: {type: string, minLength: 1, maxLength: 300}
+        expected_signal: {type: string, minLength: 1, maxLength: 300}
+        failure_condition: {type: string, minLength: 1, maxLength: 300}
+        minimum_required_inputs:
+          type: array
+          maxItems: 5
+          items: {type: string, minLength: 1, maxLength: 300}
+        time_resource_constraints:
+          type: array
+          maxItems: 8
+          items: {type: string, minLength: 1, maxLength: 300}
+
+    Experiments:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Experiments
+      type: object
+      additionalProperties: false
+      required: [designs]
+      properties:
+        designs:
+          type: array
+          maxItems: 3
+          items: {$ref: '#/components/schemas/Experiment'}
+        limitations:
+          type: array
+          maxItems: 64
+          items: {type: string, maxLength: 4000}
+
+    CalculationInputs:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::CalculationInputs
+      description: Decimal strings preserve calculator precision.
+      type: object
+      additionalProperties: false
+      properties:
+        budget: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        cpc: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        cpl: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        traffic: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        conversion_rate_percent: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        required_leads: {type: [string, 'null'], minLength: 1, maxLength: 300}
+
+    CalculationOutputs:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::CalculationOutputs
+      type: object
+      additionalProperties: false
+      properties:
+        clicks: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        leads: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        required_traffic: {type: [string, 'null'], minLength: 1, maxLength: 300}
+        required_budget: {type: [string, 'null'], minLength: 1, maxLength: 300}
+
+    Calculation:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Calculation
+      type: object
+      additionalProperties: false
+      required: [calculation_type, formula, inputs, outputs, assumptions]
+      properties:
+        calculation_type: {type: string, enum: [leads, required_traffic, required_budget]}
+        formula: {type: string, enum: [budget/cpl, budget/cpc*rate, traffic*rate, required_leads/rate, required_leads*cpl]}
+        inputs: {$ref: '#/components/schemas/CalculationInputs'}
+        outputs: {$ref: '#/components/schemas/CalculationOutputs'}
+        assumptions:
+          type: array
+          maxItems: 8
+          items: {type: string, maxLength: 4000}
+
+    DirectResponse:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::DirectResponse
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, calculation]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        owned_site:
+          oneOf:
+            - {$ref: '#/components/schemas/OwnedSiteResult'}
+            - {type: 'null'}
+        kind: {type: string, const: DIRECT_RESULT}
+        calculation: {$ref: '#/components/schemas/Calculation'}
+
+    ModuleResponse:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::ModuleResponse
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, result]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        owned_site:
+          oneOf:
+            - {$ref: '#/components/schemas/OwnedSiteResult'}
+            - {type: 'null'}
+        kind: {type: string, const: MODULE_RESULT}
+        result:
+          description: '`Post` (carries `kind: post`) or `Findings` (carries one of the findings kinds).'
+          oneOf:
+            - {$ref: '#/components/schemas/Post'}
+            - {$ref: '#/components/schemas/Findings'}
+
+    NeedsInputResponse:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::NeedsInputResponse
+      description: |
+        Grouped business clarification. `alternatives` is a list of groups of input keys; satisfying any one
+        group is sufficient. `code` is a safe machine code produced by the core (for example
+        `single_competitor_required`, `invalid_strategy_research`, `quality_rejected`); the set is open and
+        owned by the core, so clients must tolerate unknown codes. Owned-site confirmation candidates, if
+        any, are under `owned_site`.
+      type: object
+      additionalProperties: false
+      required: [schema_version, kind, code, alternatives]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        owned_site:
+          oneOf:
+            - {$ref: '#/components/schemas/OwnedSiteResult'}
+            - {type: 'null'}
+        kind: {type: string, const: NEEDS_INPUT}
+        code: {type: string, minLength: 1, maxLength: 300}
+        alternatives:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            type: array
+            items: {type: string, minLength: 1, maxLength: 300}
+        actions:
+          type: array
+          maxItems: 8
+          items: {type: string, minLength: 1, maxLength: 300}
+
+    RunStatus:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::RunStatus
+      type: string
+      enum: [QUEUED, RUNNING, COMPLETED, COMPLETED_WITH_LIMITATIONS, BLOCKED, FAILED]
+
+    Coverage:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::Coverage
+      type: object
+      additionalProperties: false
+      required: [competitors_supplied, competitors_accepted]
+      properties:
+        competitors_supplied: {type: integer, minimum: 0, maximum: 3}
+        competitors_accepted: {type: integer, minimum: 0, maximum: 3}
+        limitations:
+          type: array
+          maxItems: 32
+          items: {type: string, maxLength: 4000}
+
+    PublicFailure:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::PublicFailure
+      description: The only failure information that crosses the boundary. Raw `run.error` is never returned.
+      type: object
+      additionalProperties: false
+      required: [code, message, actions]
+      properties:
+        code: {type: string, enum: [context_required, result_unavailable]}
+        message: {type: string, minLength: 1, maxLength: 300}
+        actions:
+          type: array
+          maxItems: 8
+          items: {type: string, minLength: 1, maxLength: 300}
+
+    RunResponse:
+      x-status: existing
+      x-source: app/marketing_copilot/api_contracts.py::RunResponse
+      description: |
+        Public projection of a workflow run. `strategy` is present only after its artifact is accepted;
+        partial accepted research can appear in `details` while the run is active.
+      type: object
+      additionalProperties: false
+      required: [schema_version, run_id, status]
+      properties:
+        schema_version: {type: string, const: copilot_api.v1}
+        run_id: {type: string}
+        status: {$ref: '#/components/schemas/RunStatus'}
+        strategy:
+          oneOf:
+            - {$ref: '#/components/schemas/Strategy'}
+            - {type: 'null'}
+        experiments:
+          oneOf:
+            - {$ref: '#/components/schemas/Experiments'}
+            - {type: 'null'}
+        details:
+          type: array
+          maxItems: 5
+          items: {$ref: '#/components/schemas/Findings'}
+        evidence_coverage:
+          oneOf:
+            - {$ref: '#/components/schemas/Coverage'}
+            - {type: 'null'}
+        limitations:
+          type: array
+          maxItems: 64
+          items: {type: string, maxLength: 4000}
+        failure:
+          oneOf:
+            - {$ref: '#/components/schemas/PublicFailure'}
+            - {type: 'null'}
+
+    # ------------------------------------------------------------------
+    # EXISTING mentor DTOs - verbatim projection of
+    # app/marketing_copilot/mentor_contracts.py @ 76b6c1b.
+    # ------------------------------------------------------------------
+    MentorSection:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorSection
+      type: object
+      additionalProperties: false
+      required: [key, title, paragraphs]
+      properties:
+        key: {type: string, enum: [goal, inputs, principle, rationale, alternatives, limitations, verification, takeaway]}
+        title: {type: string, maxLength: 4000}
+        paragraphs:
+          type: array
+          minItems: 1
+          maxItems: 1024
+          items: {type: string, maxLength: 4000}
+
+    MentorExplanation:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorExplanation
+      type: object
+      additionalProperties: false
+      required: [schema_version, run_id, status, sections]
+      properties:
+        schema_version: {type: string, const: case_mentor.v1}
+        run_id: {$ref: '#/components/schemas/Sha256Hex'}
+        status: {type: string, const: COMPLETED}
+        sections:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items: {$ref: '#/components/schemas/MentorSection'}
+
+    MentorQuestion:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorQuestion
+      description: Existing request DTO. On `/v2` the `request_key` is additionally restricted to the web key format.
+      type: object
+      additionalProperties: false
+      required: [request_key, question]
+      properties:
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        question: {type: string, minLength: 1, maxLength: 2000}
+
+    MentorAnswer:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorAnswer
+      type: object
+      additionalProperties: false
+      required: [schema_version, run_id, question, focus, paragraphs]
+      properties:
+        schema_version: {type: string, const: case_mentor_answer.v1}
+        run_id: {type: string}
+        question: {type: string, maxLength: 4000}
+        focus: {type: string, enum: [alternative, verification, resources, evidence, overview]}
+        paragraphs:
+          type: array
+          minItems: 1
+          maxItems: 8192
+          items: {type: string, maxLength: 4000}
+
+    MentorTurn:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorTurn
+      type: object
+      additionalProperties: false
+      required: [request_key, question, answer]
+      properties:
+        request_key: {type: string}
+        question: {type: string, maxLength: 4000}
+        answer: {$ref: '#/components/schemas/MentorAnswer'}
+
+    MentorHistory:
+      x-status: existing
+      x-source: app/marketing_copilot/mentor_contracts.py::MentorHistory
+      type: object
+      additionalProperties: false
+      required: [schema_version, run_id, turns]
+      properties:
+        schema_version: {type: string, const: case_mentor_history.v1}
+        run_id: {type: string}
+        turns:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/MentorTurn'}
+
+    # ------------------------------------------------------------------
+    # Mentor wrappers (proposed)
+    # ------------------------------------------------------------------
+    MentorExplanationResult:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, message_id, can_ask, explanation]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        message_id: {type: string, format: uuid}
+        can_ask: {type: boolean, description: True only for the author of the request.}
+        explanation: {$ref: '#/components/schemas/MentorExplanation'}
+
+    MentorAnswerResult:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, message_id, request_key, answer]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        message_id: {type: string, format: uuid}
+        request_key: {$ref: '#/components/schemas/RequestKey'}
+        answer: {$ref: '#/components/schemas/MentorAnswer'}
+
+    MentorHistoryResult:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, message_id, can_ask, history]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        message_id: {type: string, format: uuid}
+        can_ask: {type: boolean}
+        history: {$ref: '#/components/schemas/MentorHistory'}
+
+    # ------------------------------------------------------------------
+    # Legacy Telegram history (allowlisted projection of an existing,
+    # untyped service result)
+    # ------------------------------------------------------------------
+    LegacySourceType:
+      x-status: existing
+      x-source: app/routers/projects.py (query pattern), app/services/project_history_service.py
+      type: string
+      enum: [graph, workflow, task, receipt, legacy, conversation]
+
+    LegacyHistoryItem:
+      x-status: proposed
+      description: |
+        Allowlisted subset of the metadata the existing `ProjectHistoryService.metadata` returns today.
+        The existing `source_id` and the Telegram-flow `capabilities` list are deliberately NOT exposed.
+      type: object
+      additionalProperties: false
+      required: [public_id, source_type, title, short_description, status, created_at, last_activity_at]
+      properties:
+        public_id: {type: string, minLength: 3, maxLength: 80}
+        source_type: {$ref: '#/components/schemas/LegacySourceType'}
+        title: {type: string, minLength: 1, maxLength: 200}
+        short_description: {type: [string, 'null'], maxLength: 240}
+        status:
+          description: Lower-cased source lifecycle status; the vocabulary differs per source type and is not an enum.
+          type: string
+          minLength: 1
+          maxLength: 40
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        last_activity_at: {$ref: '#/components/schemas/Timestamp'}
+
+    LegacyHistoryPage:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, items, next_offset]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        items:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/LegacyHistoryItem'}
+        next_offset: {type: [integer, 'null'], minimum: 0, maximum: 10000}
+
+    LegacyHistoryItemDetail:
+      x-status: deferred
+      description: |
+        DEFERRED. `result` is an untyped dictionary in the backend today and differs per source type; its
+        typed projection is a B11 design task. Listed only so the gap is explicit.
+      type: object
+      additionalProperties: false
+      required: [schema_version, item, result]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        item: {$ref: '#/components/schemas/LegacyHistoryItem'}
+        result:
+          description: Not frozen. Do not build against this field.
+          type: [object, 'null']

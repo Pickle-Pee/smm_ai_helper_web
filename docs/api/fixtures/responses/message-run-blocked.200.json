@@ -1,0 +1,87 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "be253e18-19fb-5905-9be8-4759840efe67",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "blocked",
+  "next_action": "start_new_request",
+  "poll_after_ms": null,
+  "user_message": {
+    "id": "2ba9a660-eb6d-54de-ab86-6296f9888470",
+    "thread_id": "be253e18-19fb-5905-9be8-4759840efe67",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-11-22T09:00:05Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0009-7a09-8c09-000000000009",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Разработай стратегию продвижения кофейни",
+    "input": {
+      "message": "Разработай стратегию продвижения кофейни",
+      "competitor_urls": [
+        "https://unreachable.example/"
+      ]
+    },
+    "state": "blocked",
+    "state_reason": null
+  },
+  "assistant_message": {
+    "id": "acd8aec4-6122-56df-9bf4-9a6c7b58d039",
+    "thread_id": "be253e18-19fb-5905-9be8-4759840efe67",
+    "seq": 2,
+    "role": "assistant",
+    "created_at": "2026-11-22T09:03:20Z",
+    "reply_to": "2ba9a660-eb6d-54de-ab86-6296f9888470",
+    "request_key": "w-0193a4f2-0009-7a09-8c09-000000000009",
+    "revision": 1,
+    "result_status": "available",
+    "result": {
+      "id": "f8311c76-dcb4-5ae2-9619-bc5449dd3044",
+      "message_id": "acd8aec4-6122-56df-9bf4-9a6c7b58d039",
+      "envelope_version": 1,
+      "schema_version": "copilot_api.v1",
+      "result_kind": "RUN",
+      "writer_version": "0.0.0-fixture",
+      "payload_sha256": "a3fccf3f920c4a64be4b13a6e99d0e82480e25bd3e2404ccc58c8e5929b4a8b0",
+      "provenance": {
+        "source_kind": "graph_run",
+        "run_id": "32766e8d365667aada488332446b75e17f6f12dbe7cbd9f3647c59a4862fa5e2",
+        "request_key": "w-0193a4f2-0009-7a09-8c09-000000000009",
+        "revision": 1,
+        "created_by": {
+          "id": 42,
+          "display_name": "Мария",
+          "is_self": true
+        },
+        "source_completed_at": "2026-11-22T09:03:18Z",
+        "materialized_at": "2026-11-22T09:03:20Z"
+      },
+      "decoded_with": {
+        "decoder": "copilot_api.v1/RUN",
+        "upcasters": []
+      },
+      "payload": {
+        "schema_version": "copilot_api.v1",
+        "run_id": "32766e8d365667aada488332446b75e17f6f12dbe7cbd9f3647c59a4862fa5e2",
+        "status": "BLOCKED",
+        "strategy": null,
+        "experiments": null,
+        "details": [],
+        "evidence_coverage": null,
+        "limitations": [],
+        "failure": {
+          "code": "context_required",
+          "message": "Additional context or an accessible source is required.",
+          "actions": [
+            "Review the supplied context and sources, then submit a new request key."
+          ]
+        }
+      }
+    }
+  },
+  "live_run": null
+}

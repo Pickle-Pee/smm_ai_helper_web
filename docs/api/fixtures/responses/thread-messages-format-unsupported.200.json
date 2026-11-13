@@ -1,0 +1,63 @@
+{
+  "schema_version": "web_api.v2",
+  "thread": {
+    "schema_version": "web_api.v2",
+    "id": "9d6dfc01-12f6-5f00-8934-f2b1515d4eb0",
+    "org_id": "4330aee2-f521-5eb1-8c02-44eba4a7a708",
+    "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+    "kind": "copilot",
+    "title": "Архивный результат",
+    "created_by": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "created_at": "2026-11-20T13:00:00Z",
+    "updated_at": "2026-11-20T13:00:30Z",
+    "last_seq": 2,
+    "in_flight": null,
+    "permissions": {
+      "can_submit": true,
+      "can_remove": true
+    }
+  },
+  "items": [
+    {
+      "id": "b4c5d72e-3bce-594c-9524-acaf6846c7ab",
+      "thread_id": "9d6dfc01-12f6-5f00-8934-f2b1515d4eb0",
+      "seq": 1,
+      "role": "user",
+      "created_at": "2026-11-20T13:00:02Z",
+      "author": {
+        "id": 42,
+        "display_name": "Мария",
+        "is_self": true
+      },
+      "request_key": "w-0193a4f2-000c-7a0c-8c0c-00000000000c",
+      "revision": 1,
+      "is_latest_revision": true,
+      "text": "Проанализируй конкурента",
+      "input": {
+        "message": "Проанализируй конкурента",
+        "competitor_urls": [
+          "https://competitor.example/"
+        ]
+      },
+      "state": "completed",
+      "state_reason": null
+    },
+    {
+      "id": "8874f418-91dc-58d2-ad93-536b9fb0b84b",
+      "thread_id": "9d6dfc01-12f6-5f00-8934-f2b1515d4eb0",
+      "seq": 2,
+      "role": "assistant",
+      "created_at": "2026-11-20T13:00:30Z",
+      "reply_to": "b4c5d72e-3bce-594c-9524-acaf6846c7ab",
+      "request_key": "w-0193a4f2-000c-7a0c-8c0c-00000000000c",
+      "revision": 1,
+      "result_status": "format_unsupported",
+      "result": null
+    }
+  ],
+  "prev_before_seq": null
+}

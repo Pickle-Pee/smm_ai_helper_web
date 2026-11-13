@@ -1,0 +1,31 @@
+{
+  "schema_version": "web_api.v2",
+  "thread_id": "600e47c6-40b2-5f64-b626-0c893bf4ad86",
+  "project_id": "a1f59d0c-9838-523f-a412-b7eeb76d5954",
+  "state": "expired",
+  "next_action": "start_new_request",
+  "poll_after_ms": null,
+  "user_message": {
+    "id": "ab834419-022d-51ca-be1a-33e9c1f9dd56",
+    "thread_id": "600e47c6-40b2-5f64-b626-0c893bf4ad86",
+    "seq": 1,
+    "role": "user",
+    "created_at": "2026-10-01T08:00:03Z",
+    "author": {
+      "id": 42,
+      "display_name": "Мария",
+      "is_self": true
+    },
+    "request_key": "w-0193a4f2-0007-7a07-8c07-000000000007",
+    "revision": 1,
+    "is_latest_revision": true,
+    "text": "Напиши пост к открытию второй точки",
+    "input": {
+      "message": "Напиши пост к открытию второй точки"
+    },
+    "state": "expired",
+    "state_reason": "receipt_expired"
+  },
+  "assistant_message": null,
+  "live_run": null
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "web_api.v2",
+  "message_id": "74ca17a0-458c-5ed6-bc8f-cc91b405db85",
+  "can_ask": true,
+  "history": {
+    "schema_version": "case_mentor_history.v1",
+    "run_id": "a7098fd4094c38107ff88bdea97585cae0bfcecf9005943003e7e3ce937be1af",
+    "turns": [
+      {
+        "request_key": "w-0193a4f2-000b-7a0b-8c0b-00000000000b",
+        "question": "Почему сначала удержание, а не привлечение новых гостей?",
+        "answer": {
+          "schema_version": "case_mentor_answer.v1",
+          "run_id": "a7098fd4094c38107ff88bdea97585cae0bfcecf9005943003e7e3ce937be1af",
+          "question": "Почему сначала удержание, а не привлечение новых гостей?",
+          "focus": "alternative",
+          "paragraphs": [
+            "В стратегии главным ограничением роста названа низкая доля повторных визитов.",
+            "Привлечение новых гостей без механики удержания усилит то же ограничение."
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": "web_api.v2",
+  "next_offset": null,
+  "items": [
+    {
+      "public_id": "g:e52c524e6ef763c08076c7e2fb83bdbe399ed5c84ef205de3d8c77321030341b",
+      "source_type": "graph",
+      "title": "Стратегия для кофейни",
+      "short_description": null,
+      "status": "completed",
+      "created_at": "2026-10-02T10:00:00+00:00",
+      "last_activity_at": "2026-10-02T10:06:00+00:00"
+    },
+    {
+      "public_id": "t:1287",
+      "source_type": "task",
+      "title": "Контент-план на неделю",
+      "short_description": "Контент-план на неделю для кофейни",
+      "status": "done",
+      "created_at": "2026-09-12T08:30:00+00:00",
+      "last_activity_at": "2026-09-12T08:30:00+00:00"
+    },
+    {
+      "public_id": "l:chat",
+      "source_type": "legacy",
+      "title": "Обычный диалог с ассистентом",
+      "short_description": null,
+      "status": "saved",
+      "created_at": "2026-08-14T11:32:10+00:00",
+      "last_activity_at": "2026-11-18T19:20:00+00:00"
+    }
+  ]
+}
