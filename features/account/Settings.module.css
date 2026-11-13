@@ -7,7 +7,7 @@
 
 .subnav {
   position: sticky;
-  top: calc(var(--topbar-height) + var(--space-6));
+  top: calc(var(--chrome-height) + var(--space-6));
 }
 
 .subnav ul {
@@ -42,7 +42,7 @@
 }
 
 .section {
-  scroll-margin-top: calc(var(--topbar-height) + var(--space-5));
+  scroll-margin-top: calc(var(--chrome-height) + var(--space-5));
 }
 
 .sectionIcon {

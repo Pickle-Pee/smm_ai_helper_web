@@ -82,7 +82,7 @@ export function SettingsView() {
             id="integrations"
             icon={Plug}
             title="Интеграции"
-            description="Подключение каналов и связка с Telegram-ботом SMM AI Helper."
+            description="Подключение каналов и связка аккаунта с Telegram-ботом."
             items={["Связка аккаунта с Telegram-ботом через подтверждение входа", "Публикация в VK и Telegram-каналы", "Импорт статистики"]}
             extraIcon={Bot}
           />

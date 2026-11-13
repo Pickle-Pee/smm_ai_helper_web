@@ -35,7 +35,7 @@ export function Sidebar() {
   return (
     <aside className={styles.sidebar} aria-label="Основная навигация">
       <div className={styles.sidebarTop}>
-        <Link href="/" className={styles.logoLink} aria-label="SMM AI Helper — на рабочий стол">
+        <Link href="/" className={styles.logoLink} aria-label="Brenvio — на рабочий стол">
           <Logo onDark className={styles.logoFull} />
           <LogoMark onDark className={styles.logoCompact} />
         </Link>
@@ -94,7 +94,7 @@ export function Sidebar() {
         <div className={styles.demoCard}>
           <FlaskConical size={16} aria-hidden />
           <p>
-            <strong>Демо-версия.</strong> Данные вымышленные, AI и сохранение на сервере не подключены.
+            <strong>Brenvio Preview.</strong> Данные вымышленные, AI и облачное сохранение не подключены.
           </p>
         </div>
         <Link href="/settings#workspace" className={styles.workspaceChip} title={workspace.name}>

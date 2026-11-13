@@ -9,7 +9,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  scroll-padding-top: calc(var(--topbar-height) + var(--space-4));
+  scroll-padding-top: calc(var(--chrome-height) + var(--space-4));
 }
 
 body {
