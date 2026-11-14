@@ -61,6 +61,104 @@ export function toUiThread(dto: Thread): UiThread {
   };
 }
 
+/** Project as the AI Workspace needs it: UI model plus server-computed permissions. */
+export interface WorkspaceProjectView {
+  project: UiProject;
+  /** From `Project.permissions.can_submit` (server-computed for the caller; a viewer cannot submit). */
+  canSubmit: boolean;
+  role: Project["role"];
+}
+
+export function presentWorkspaceProject(dto: Project): WorkspaceProjectView {
+  return { project: toUiProject(dto), canSubmit: dto.permissions.can_submit, role: dto.role };
+}
+
+/** Thread summary for the history list (no messages: history is loaded per thread when it is opened). */
+export interface ThreadSummaryView {
+  id: string;
+  title: string;
+  projectId: string;
+  /** Only `copilot` threads are usable in F2; web chat is a future stage. */
+  kind: Thread["kind"];
+  createdAt: string;
+  updatedAt: string;
+  canSubmit: boolean;
+  inFlight: { state: "pending" | "running"; messageId: string } | null;
+}
+
+export function presentThreadSummary(dto: Thread): ThreadSummaryView {
+  return {
+    id: dto.id,
+    title: dto.title,
+    projectId: dto.project_id,
+    kind: dto.kind,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+    canSubmit: dto.permissions.can_submit,
+    inFlight: dto.in_flight ? { state: dto.in_flight.state, messageId: dto.in_flight.message_id } : null,
+  };
+}
+
+/** One history item. Content only; request keys are kept for diagnostics and never shown as content. */
+export type ThreadMessageView =
+  | {
+      role: "user";
+      id: string;
+      seq: number;
+      createdAt: string;
+      text: string;
+      revision: number;
+      isLatestRevision: boolean;
+      requestKey: string;
+      state: ExecutionStatus;
+      stateLabel: string;
+      author: { displayName: string | null; isSelf: boolean };
+      /** Business context added with this revision (clarification answers), as readable label/value pairs. */
+      context: { label: string; value: string }[];
+      confirmedStatements: number;
+    }
+  | {
+      role: "assistant";
+      id: string;
+      seq: number;
+      createdAt: string;
+      replyTo: string;
+      revision: number;
+      result: ResultView;
+    };
+
+export function presentThreadMessage(message: Schemas["ThreadMessage"]): ThreadMessageView {
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      id: message.id,
+      seq: message.seq,
+      createdAt: message.created_at,
+      replyTo: message.reply_to,
+      revision: message.revision,
+      result: presentAssistantMessage(message),
+    };
+  }
+  const context = Object.entries(message.input?.context ?? {})
+    .filter(([, v]) => typeof v === "string" && v.trim())
+    .map(([k, v]) => ({ label: inputLabel(k), value: v as string }));
+  return {
+    role: "user",
+    id: message.id,
+    seq: message.seq,
+    createdAt: message.created_at,
+    text: message.text,
+    revision: message.revision,
+    isLatestRevision: message.is_latest_revision,
+    requestKey: message.request_key,
+    state: message.state,
+    stateLabel: STATE_TEXT[message.state].label,
+    author: { displayName: message.author.display_name ?? null, isSelf: message.author.is_self },
+    context,
+    confirmedStatements: message.input?.confirmation?.statement_ids.length ?? 0,
+  };
+}
+
 /* ---------------- results ---------------- */
 
 export interface ResultMeta {
@@ -84,8 +182,10 @@ export interface ResultMeta {
 
 export interface ClarificationView {
   code: string;
-  /** Groups of missing inputs; satisfying any one group is enough. */
+  /** Groups of missing inputs (readable labels); satisfying any one group is enough. */
   alternatives: string[][];
+  /** The same groups as `BusinessContext` field names (for the answer form). */
+  alternativeKeys: string[][];
   /** Owned-site statements the author may confirm. */
   candidates: { statementId: string; statement: string; sourceUrl: string }[];
   snapshotId: string | null;
@@ -121,6 +221,18 @@ export type ResultView =
       description: string;
     }
   | {
+      /** `409 result_not_ready`: the request has not produced a snapshot yet. Read again later. */
+      status: "not_ready";
+      title: string;
+      description: string;
+    }
+  | {
+      /** `410 result_gone`: the result was removed (e.g. the thread was deleted). Nothing is regenerated. */
+      status: "gone";
+      title: string;
+      description: string;
+    }
+  | {
       /** A result kind this UI version does not present (e.g. FUTURE web chat replies). */
       status: "not_presentable";
       title: string;
@@ -142,6 +254,14 @@ const UNAVAILABLE_TEXT = {
     title: "Не удалось прочитать результат",
     description: "Сохранённые данные целы, но сервис не смог их показать. Попробуйте открыть позже — повторной генерации не будет.",
   },
+  not_ready: {
+    title: "Результат ещё не готов",
+    description: "Запрос ещё выполняется или ждёт уточнения. Откройте результат после завершения.",
+  },
+  gone: {
+    title: "Результат больше недоступен",
+    description: "Сохранённый результат удалён. Новая генерация не запускается автоматически.",
+  },
 } as const;
 
 export function presentAssistantMessage(message: AssistantMessage): ResultView {
@@ -161,6 +281,10 @@ export function presentResultError(error: WebApiError): ResultView | null {
       return { status: "corrupted", ...UNAVAILABLE_TEXT.corrupted };
     case "result_unreadable":
       return { status: "unreadable", ...UNAVAILABLE_TEXT.unreadable };
+    case "result_not_ready":
+      return { status: "not_ready", ...UNAVAILABLE_TEXT.not_ready };
+    case "result_gone":
+      return { status: "gone", ...UNAVAILABLE_TEXT.gone };
     default:
       return null;
   }
@@ -204,6 +328,7 @@ export function presentSnapshot(snapshot: ResultSnapshot): ResultView {
       const clarification: ClarificationView = {
         code: payload.code,
         alternatives: payload.alternatives.map((group) => group.map(inputLabel)),
+        alternativeKeys: payload.alternatives.map((group) => [...group]),
         candidates: (payload.owned_site?.candidates ?? []).map((c) => ({ statementId: c.statement_id, statement: c.statement, sourceUrl: c.source_url })),
         snapshotId: payload.owned_site?.snapshot_id ?? null,
       };
@@ -511,6 +636,7 @@ const ERROR_TEXT: Partial<Record<ErrorCode, string>> = {
   result_corrupted: UNAVAILABLE_TEXT.corrupted.description,
   result_format_unsupported: UNAVAILABLE_TEXT.format_unsupported.description,
   result_unreadable: UNAVAILABLE_TEXT.unreadable.description,
+  result_not_ready: UNAVAILABLE_TEXT.not_ready.description,
 };
 
 /** Localized text for an error, by `code` only (the API never sends free text). Includes the diagnostic id. */

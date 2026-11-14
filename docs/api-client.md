@@ -25,6 +25,8 @@
 | Read adapter for the existing UI client | `lib/api/v2/read-adapter.ts` | ready, not wired (app keeps `createMockApiClient`) |
 | Mode selection | `lib/api/v2/mode.ts` | always `fixture` |
 | Demo UI | Settings → «Web API v2 · примеры» (`features/workspace/contract-demo/*`, `ContractDemoPanel`, `ContractResultCard`) | in-memory, labelled «Пример из тестовых данных» |
+| AI Workspace (F2) | `features/workspace/v2/controller.ts`, `WorkspaceView` | uses the fixture transport through `RequestCoordinator` — see [workspace-v2.md](workspace-v2.md) |
+| Pending request stores (F2) | `lib/api/v2/pending-store.ts`, `pending-store-idb.ts` | memory in the preview; IndexedDB adapter ready and tested, enabled only with a verified principal |
 
 Unchanged on purpose: the read-only UI `ApiClient` (`lib/api/contracts.ts`), the mock dataset, all feature stores and
 their **local** mutations (create/edit project, local messages, result status, checklists), Dashboard, AI Workspace,
@@ -127,9 +129,11 @@ re-bound to the ids/key/revision of the simulated request). It never calls a mod
     would allow one bounded `rate_limited` retry; F1 leaves it to an explicit user action). A rejection does not
     fence the thread: nothing was admitted.
 
-**F1 limitation (hard blocker for HTTP).** The default `MemoryPendingRequestStore` lives in the tab: a reload or a
-second tab loses the fence. Before HTTP is switched on, the store must be durable (IndexedDB, cleared on logout) and
-recovery after reload must combine it with the server's `Thread.in_flight` (§9, item 4).
+**F1 limitation (hard blocker for HTTP), partly addressed in F2.** The default `MemoryPendingRequestStore` lives in
+the tab: a reload or a second tab loses the fence. F2 adds the durable `IndexedDbPendingRequestStore` (written and
+flushed before the POST, fail closed, scoped per principal, cleared on logout/account switch, versioned) and
+`RequestCoordinator.reconcileThread` (local records + `Thread.in_flight`, read-only). The app keeps the memory store
+until a verified principal exists (real sessions), see [workspace-v2.md](workspace-v2.md) §4.
 
 ## 6. Result presentation
 
@@ -190,7 +194,7 @@ Nothing below is done in F1. The switch must be its own PR that changes `lib/api
    `__Host-brenvio_session` (HttpOnly, Secure, SameSite=Lax), CSRF, logout; no fake "logged in" UI before that.
 3. Edge F4: Caddy `handle /api/v2/*` → FastAPI `/v2/*` with body limit and 330 s timeout, `Cache-Control:
    private, no-store` on all responses including edge errors; no CDN caching; staging `caddy validate` + smoke.
-4. **Blocker:** durable IndexedDB `PendingRequestStore` (stored before POST, keeps record statuses including
+4. **Blocker (adapter done in F2, wiring pending):** durable IndexedDB `PendingRequestStore` (stored before POST, keeps record statuses including
    `unresolved`/`superseded`, cleared on logout) replacing the memory store; on load, fenced threads are restored from
    it and reconciled with `Thread.in_flight` before any new submit is allowed.
 5. Security testing: tenant isolation T1–T10 / O-T1–O-T5, CSRF/Origin checks, no secrets in bundles, rate limits

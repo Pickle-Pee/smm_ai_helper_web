@@ -125,6 +125,24 @@ describe("source policy", () => {
     expect(http).toMatch(/FORBIDDEN_HEADERS = \[[^\]]*"x-telegram-user-id"/);
   });
 
+  it("the AI Workspace starts and recovers AI requests only through RequestCoordinator", () => {
+    const workspace = files.filter((f) => f.startsWith("features/workspace/") && !f.startsWith("features/workspace/contract-demo/"));
+    expect(workspace.length).toBeGreaterThan(5);
+    const offenders = workspace.filter((f) => /\.(submitMessage|getRequestByKey)\s*\(/.test(read(f)));
+    expect(offenders).toEqual([]);
+    // Components never construct a transport or a coordinator themselves.
+    const components = files.filter((f) => /^(features|components)\/.*\.tsx$/.test(f) && f !== "features/workspace/components/ContractDemoPanel.tsx");
+    expect(components.filter((f) => /new (FixtureWebApiV2Client|WebApiV2Client|RequestCoordinator)\(/.test(read(f)))).toEqual([]);
+  });
+
+  it("the public preview keeps pending requests transient (no IndexedDB without a verified principal)", () => {
+    const controller = read("features/workspace/v2/controller.ts");
+    expect(controller).toMatch(/selectPendingRequestStore\(\{ principal: null \}\)/);
+    const offenders = files.filter((f) => f !== "lib/api/v2/pending-store.ts" && f !== "lib/api/v2/pending-store-idb.ts" && /\bindexedDB\b/.test(read(f)));
+    expect(offenders).toEqual([]);
+    expect(files.filter((f) => /localStorage\.setItem\([^)]*(token|session|csrf)/i.test(read(f)))).toEqual([]);
+  });
+
   it("generated files are only produced by the generator", () => {
     for (const f of ["lib/api/generated/web-api-v2.ts", "lib/api/generated/web-api-v2.meta.ts"]) {
       expect(read(f)).toContain("GENERATED FILE - DO NOT EDIT");

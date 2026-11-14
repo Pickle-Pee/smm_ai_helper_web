@@ -26,5 +26,6 @@ export async function loadAppWebApiV2(): Promise<WebApiV2> {
   const mode = resolveWebApiV2Mode();
   if (mode !== "fixture") throw new Error(`Unsupported Web API v2 mode: ${String(mode)}`);
   const { FixtureWebApiV2Client } = await import("./fixture-client");
-  return new FixtureWebApiV2Client();
+  // A few "running" reads before a simulated workflow completes, so the Workspace shows real progress states.
+  return new FixtureWebApiV2Client({ pollsUntilDone: 3 });
 }

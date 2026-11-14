@@ -12,7 +12,18 @@ import type { Project, ScenarioId } from "@/lib/types";
 import { scenarios } from "../scenarios";
 import styles from "../Workspace.module.css";
 
-export function ContextPanel({ project, onUseScenario }: { project: Project | null; onUseScenario: (id: ScenarioId) => void }) {
+export function ContextPanel({
+  project,
+  onUseScenario,
+  projectLink = true,
+  emptyDescription = "Выберите бренд в шапке диалога — AI будет учитывать описание бизнеса, аудиторию и конкурентов.",
+}: {
+  project: Project | null;
+  onUseScenario: (id: ScenarioId) => void;
+  /** Link to the project card (only when the project exists in the Projects section's dataset). */
+  projectLink?: boolean;
+  emptyDescription?: string;
+}) {
   const { documents } = useDocuments();
 
   return (
@@ -24,10 +35,10 @@ export function ContextPanel({ project, onUseScenario }: { project: Project | nu
           compact
           icon={Building2}
           title="Бренд не выбран"
-          description="Выберите бренд в шапке диалога — AI будет учитывать описание бизнеса, аудиторию и конкурентов."
+          description={emptyDescription}
         />
       ) : (
-        <BrandContext project={project} docs={documents.filter((d) => d.projectId === project.id).slice(0, 3)} />
+        <BrandContext project={project} projectLink={projectLink} docs={documents.filter((d) => d.projectId === project.id).slice(0, 3)} />
       )}
 
       <section className={styles.contextSection} aria-labelledby="ctx-scenarios">
@@ -57,7 +68,7 @@ export function ContextPanel({ project, onUseScenario }: { project: Project | nu
   );
 }
 
-function BrandContext({ project, docs }: { project: Project; docs: ReturnType<typeof useDocuments>["documents"] }) {
+function BrandContext({ project, docs, projectLink }: { project: Project; docs: ReturnType<typeof useDocuments>["documents"]; projectLink: boolean }) {
   const { percent, missing } = contextCompleteness(project);
   const fields: { label: string; value: string }[] = [
     { label: "Продукт", value: project.description },
@@ -77,9 +88,11 @@ function BrandContext({ project, docs }: { project: Project; docs: ReturnType<ty
           <p className={styles.brandIndustry}>{project.industry}</p>
         </div>
       </div>
-      <Link href={`/projects/${project.id}`} className={styles.brandLink}>
-        Открыть карточку проекта <ArrowUpRight size={14} aria-hidden />
-      </Link>
+      {projectLink && (
+        <Link href={`/projects/${project.id}`} className={styles.brandLink}>
+          Открыть карточку проекта <ArrowUpRight size={14} aria-hidden />
+        </Link>
+      )}
 
       <div className={styles.contextSection}>
         <Meter
