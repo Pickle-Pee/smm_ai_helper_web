@@ -54,7 +54,7 @@ export function ResultCard({ threadId, messageId, result }: { threadId: ID; mess
 
       <div className={styles.blocks}>
         {result.blocks.map((block, index) => (
-          <Block key={index} block={block} onToggle={(itemId) => toggleChecklistItem(threadId, messageId, itemId)} />
+          <ResultBlockView key={index} block={block} onToggle={(itemId) => toggleChecklistItem(threadId, messageId, itemId)} />
         ))}
       </div>
 
@@ -81,7 +81,8 @@ export function ResultCard({ threadId, messageId, result }: { threadId: ID; mess
   );
 }
 
-function Block({ block, onToggle }: { block: ResultBlock; onToggle: (itemId: ID) => void }) {
+/** Renders one result block. Exported so read-only result views (contract demo) share the same markup. */
+export function ResultBlockView({ block, onToggle }: { block: ResultBlock; onToggle?: (itemId: ID) => void }) {
   switch (block.type) {
     case "heading":
       return <h4 className={styles.heading}>{block.text}</h4>;
@@ -174,7 +175,7 @@ function Block({ block, onToggle }: { block: ResultBlock; onToggle: (itemId: ID)
           </legend>
           {block.items.map((item) => (
             <label key={item.id} className={cx(styles.checkItem, item.done && styles.checkDone)}>
-              <input type="checkbox" checked={item.done} onChange={() => onToggle(item.id)} />
+              <input type="checkbox" checked={item.done} onChange={() => onToggle?.(item.id)} disabled={!onToggle} />
               <span>{item.text}</span>
             </label>
           ))}

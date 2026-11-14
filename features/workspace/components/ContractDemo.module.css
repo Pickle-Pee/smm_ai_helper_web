@@ -1,0 +1,198 @@
+/* Web API v2 demo (Settings → «Web API v2 · примеры»). Test-data content: neutral dashed frame, never the violet AI edge. */
+.panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.note {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  max-width: 72ch;
+}
+
+.note code,
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  color: var(--color-text-muted);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.caseField {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+}
+
+.steps {
+  display: grid;
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.step {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stepTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.stepIndex {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.execution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stepText {
+  flex-basis: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.stepNote {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.warning {
+  flex-basis: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--text-sm);
+}
+
+.summary {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.resultCard {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5) 0;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+}
+
+.resultCard > :global(*) {
+  min-width: 0;
+}
+
+/* Reuse ResultCard block styles without its card padding (this card has its own). */
+.resultCard .blocks {
+  padding: var(--space-3) 0 var(--space-4);
+}
+
+.resultHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.resultTitle {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.resultSummary {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  max-width: 72ch;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0 calc(-1 * var(--space-5));
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px dashed var(--color-border);
+  font-size: var(--text-xs);
+}
+
+.meta dt {
+  color: var(--color-text-muted);
+}
+
+.meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.unavailable {
+  padding-bottom: var(--space-4);
+}
+
+.unavailableBody {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  color: var(--color-text-secondary);
+}
+
+.unavailableBody svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .resultCard {
+    padding-inline: var(--space-3);
+  }
+
+  .meta {
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
+  }
+}

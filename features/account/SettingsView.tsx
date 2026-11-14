@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Bot, Building2, CreditCard, FlaskConical, KeyRound, Lock, Palette, Plug, RotateCcw, ShieldCheck, User, Users } from "lucide-react";
+import { Bot, Building2, CreditCard, FileJson, FlaskConical, KeyRound, Lock, Palette, Plug, RotateCcw, ShieldCheck, User, Users } from "lucide-react";
 import { Badge, SoonBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useProjects } from "@/features/projects/store";
 import { useWorkspace } from "@/features/workspace/store";
 import { useDocuments } from "@/features/documents/store";
+import { ContractDemoPanel } from "@/features/workspace/components/ContractDemoPanel";
 import type { DemoView } from "@/lib/resource";
 import { roleLabel, useAccount, type AccountProfile } from "./store";
 import styles from "./Settings.module.css";
@@ -21,6 +22,7 @@ const sections = [
   { id: "workspace", label: "Рабочее пространство", icon: Building2 },
   { id: "appearance", label: "Интерфейс", icon: Palette },
   { id: "demo", label: "Демо-состояния", icon: FlaskConical },
+  { id: "api-demo", label: "Web API v2 · примеры", icon: FileJson },
   { id: "team", label: "Команда", icon: Users },
   { id: "billing", label: "Тариф и оплата", icon: CreditCard },
   { id: "integrations", label: "Интеграции", icon: Plug },
@@ -64,6 +66,15 @@ export function SettingsView() {
           <WorkspaceSection />
           <AppearanceSection />
           <DemoSection />
+          <Section
+            id="api-demo"
+            icon={FileJson}
+            title="Web API v2 · примеры"
+            description="Как интерфейс будет работать с будущим backend: отправка, уточнения, ожидание и восстановление — на тестовых данных"
+            badge={<Badge tone="outline">Только тестовые данные</Badge>}
+          >
+            <ContractDemoPanel />
+          </Section>
           <LockedSection
             id="team"
             icon={Users}

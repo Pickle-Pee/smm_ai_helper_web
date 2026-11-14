@@ -4,3 +4,4 @@ deploy/** text eol=lf
 Dockerfile text eol=lf
 *.png binary
 *.jpg binary
+lib/api/generated/** text eol=lf
