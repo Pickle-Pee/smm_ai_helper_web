@@ -93,7 +93,7 @@ export function RequestStatus({ request, canAct, actions }: { request: ThreadReq
       {phase === "rejected" && error?.resetsAt && <p className={styles.statusError}>Лимит обновится {new Date(error.resetsAt).toLocaleString("ru-RU")}.</p>}
       {waiting && stoppedWaiting && <p className={styles.statusError}>Ожидание остановлено только в браузере: запрос не отменён и не повторён.</p>}
       <div className={styles.statusActions}>
-        {phase === "unknown" && (
+        {(phase === "unknown" || refusal?.reason === "store_unavailable") && (
           <Button size="sm" icon={RefreshCw} onClick={actions.onCheckStatus}>
             Проверить статус
           </Button>

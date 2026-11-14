@@ -440,3 +440,72 @@ describe("429 limits", () => {
     expect(controller.canStartNormalRequest(id)).toBe(true);
   });
 });
+
+describe("review follow-up (PR #13)", () => {
+  class FlakyRefreshStore extends MemoryPendingRequestStore {
+    failRefresh = false;
+    async refresh() {
+      if (this.failRefresh) throw new Error("IndexedDB read failed");
+    }
+    async flush() {}
+  }
+
+  it("store re-read failure: thread is blocked, nothing is sent; a successful re-check unblocks it", async () => {
+    const api = new FixtureWebApiV2Client();
+    const submit = vi.spyOn(api, "submitMessage");
+    const create = vi.spyOn(api, "createThread");
+    const store = new FlakyRefreshStore();
+    const controller = new WorkspaceV2Controller({
+      api,
+      pendingStore: { kind: "durable", store: store as never },
+      simulation: api,
+      sleep: noSleep,
+      newId: () => `idem-${++ids}`,
+    });
+    await controller.start();
+    store.failRefresh = true;
+    await controller.openThread(FIXTURE_IDS.strategyThreadId);
+    expect(detail(controller, FIXTURE_IDS.strategyThreadId).request.refusal).toMatchObject({ reason: "store_unavailable" });
+    expect(controller.canStartNormalRequest(FIXTURE_IDS.strategyThreadId)).toBe(false);
+
+    await controller.submit(FIXTURE_IDS.strategyThreadId, "Ещё запрос");
+    expect(detail(controller, FIXTURE_IDS.strategyThreadId).request.refusal).toMatchObject({ reason: "store_unavailable", text: expect.stringMatching(/Ничего не отправлено/) });
+    expect(await controller.createThreadAndSubmit({ projectId: FIXTURE_IDS.projectId, text: "Новый" })).toMatchObject({ error: { text: expect.stringMatching(/Ничего не отправлено/) } });
+    expect(create).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+
+    await controller.checkStatus(FIXTURE_IDS.strategyThreadId); // still failing
+    expect(detail(controller, FIXTURE_IDS.strategyThreadId).request.refusal?.reason).toBe("store_unavailable");
+    store.failRefresh = false;
+    await controller.checkStatus(FIXTURE_IDS.strategyThreadId);
+    expect(detail(controller, FIXTURE_IDS.strategyThreadId).request.refusal).toBeNull();
+    expect(controller.canStartNormalRequest(FIXTURE_IDS.strategyThreadId)).toBe(true);
+  });
+
+  it("restart while the earlier request still runs: new thread with its own key; the old record is untouched and still fences", async () => {
+    const { controller, api, store, submit } = setup({}, () => new Promise(() => {}));
+    await controller.start();
+    const oldId = await newRequest(controller, "running_overdue", "Проанализируй конкурента");
+    await vi.waitFor(() => expect(detail(controller, oldId).request.execution?.status).toBe("running_overdue"));
+    const oldKey = submit.mock.calls[0][1].request_key;
+    expect(store.get(oldKey)).toMatchObject({ status: "accepted" });
+
+    const result = await controller.startNewRequest(oldId, {}, { acknowledgeMayRegenerate: true }, "direct_result");
+    expect(result?.threadId).toBeDefined();
+    const newId = result!.threadId;
+    expect(newId).not.toBe(oldId);
+
+    // New thread: fresh key, its own result, linked back to the old thread.
+    const newKey = submit.mock.calls[1][1].request_key;
+    expect(newKey).not.toBe(oldKey);
+    expect(detail(controller, newId)).toMatchObject({ restartedFrom: { threadId: oldId, title: "Проанализируй конкурента" }, request: { execution: { status: "completed" } } });
+
+    // Old thread: record neither superseded nor deleted, still fencing; server still runs it; its view unchanged.
+    expect(store.get(oldKey)).toMatchObject({ status: "accepted", threadId: oldId });
+    expect(store.get(oldKey)?.supersededBy).toBeUndefined();
+    expect(controller.coordinator.unresolvedRequests(oldId).map((r) => r.requestKey)).toEqual([oldKey]);
+    expect((await api.getThread(oldId)).in_flight).toMatchObject({ request_key: oldKey });
+    expect(detail(controller, oldId).request.execution).toMatchObject({ status: "running_overdue", requestKey: oldKey });
+    controller.dispose();
+  });
+});

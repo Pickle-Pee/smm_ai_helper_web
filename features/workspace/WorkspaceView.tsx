@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FlaskConical, History, Info, MessageSquarePlus, PanelRight, SearchX, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
@@ -279,6 +280,15 @@ export function WorkspaceView() {
                 </span>
               </p>
             )}
+            {summary && detail?.restartedFrom && (
+              <p className={cx(stateStyles.notice, stateStyles.status)} role="note">
+                <span className={stateStyles.statusText}>
+                  <Info size={14} aria-hidden /> Новый запрос начат в отдельном диалоге. Прежний запрос в диалоге{" "}
+                  <Link href={`/workspace?thread=${detail.restartedFrom.threadId}`}>«{detail.restartedFrom.title}»</Link> не отменён и не
+                  заменён: он продолжает выполняться, и его статус проверяется там отдельно.
+                </span>
+              </p>
+            )}
             {summary && detail && controller && (
               <div className={styles.composer}>
                 <RequestStatus
@@ -383,8 +393,9 @@ function composerBlockReason(input: {
   if (!input.threadId || !input.detail || input.detail.status !== "ready") return "Загружаем диалог…";
   if (input.kind !== "copilot") return "Свободный веб-чат появится на следующих этапах. Сейчас доступны только Copilot-сценарии.";
   if (!input.projectCanSubmit) return "Ваша роль в проекте — наблюдатель: отправлять запросы нельзя.";
-  const { phase, execution } = input.detail.request;
+  const { phase, execution, refusal } = input.detail.request;
   if (phase === "submitting") return "Запрос отправляется…";
+  if (refusal?.reason === "store_unavailable") return "Сохранённые запросы этого браузера не прочитаны. Нажмите «Проверить статус» выше.";
   if (input.controller.canStartNormalRequest(input.threadId)) return null;
   const status = execution?.status;
   if (status === "pending" || status === "running" || status === "running_overdue") return "В этом диалоге выполняется запрос. Дождитесь результата.";

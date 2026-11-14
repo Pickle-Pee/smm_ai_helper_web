@@ -16,8 +16,9 @@ import type { SubmitMessageRequest } from "./types";
  * - `refresh()` reloads the principal's records (another tab may have written them). A `BroadcastChannel` (when
  *   available) prompts other tabs to refresh after each commit; the server's `409 thread_busy` stays authoritative.
  * - Versioned: the database version (`DB_VERSION`) owns the object-store layout; each row carries
- *   `schemaVersion` (`RECORD_SCHEMA_VERSION`). A record that cannot be decoded still fences its thread
- *   (`payloadUnavailable`), it is never silently dropped.
+ *   `schemaVersion` (`RECORD_SCHEMA_VERSION`). A row that cannot be decoded (unknown schema version, damaged
+ *   payload) ALWAYS fences its thread as `unresolved` whatever status it claims — that status cannot be trusted
+ *   either — and its payload is never resent (`payloadUnavailable`). It is never silently dropped.
  * - Retention: `rejected` and `superseded` records are deleted after `retentionDays` (default 30). Fencing records
  *   (`sending`, `accepted`, `unresolved`) are kept until a recovery read resolves them or the user supersedes them.
  *
@@ -57,13 +58,22 @@ interface StoredRow {
   payload: SubmitMessageRequest;
   supersededBy?: string;
   projectId?: string;
+  /** Written by this store for a record whose payload was already unavailable; the placeholder is never resent. */
+  payloadUnavailable?: true;
   createdAt: string;
   updatedAt: string;
 }
 
 const STATUSES: ReadonlySet<string> = new Set(["sending", "unresolved", "accepted", "rejected", "superseded"]);
 
-/** Decodes a row into a record. Undecodable rows that still identify a thread fence it (fail closed). */
+/**
+ * Decodes a row into a record.
+ * - Valid current-schema row: its status is used as written (an invalid status becomes `unresolved`).
+ * - Valid current-schema row marked `payloadUnavailable` (this store rewrote a record whose payload was already
+ *   unreadable, e.g. after the user superseded it): status as written, payload never resendable.
+ * - Anything else that still identifies a thread and key (unknown schema version, damaged payload): fail closed —
+ *   `unresolved` regardless of the claimed status (even `rejected` / `superseded`), `payloadUnavailable`.
+ */
 export function decodeRow(row: unknown): PendingRequestRecord | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Partial<StoredRow>;
@@ -85,15 +95,15 @@ export function decodeRow(row: unknown): PendingRequestRecord | null {
     ...(typeof r.createdAt === "string" ? { createdAt: r.createdAt } : {}),
     ...(typeof r.supersededBy === "string" && isRequestKey(r.supersededBy) ? { supersededBy: r.supersededBy } : {}),
   };
+  const placeholder = { message: "", request_key: r.requestKey, revision };
+  if (payloadOk && r.payloadUnavailable === true) {
+    return deepFreeze({ ...base, status, payload: placeholder, payloadUnavailable: true as const });
+  }
   if (payloadOk) return deepFreeze({ ...base, status, payload: r.payload as SubmitMessageRequest });
-  // Unknown/damaged: keep fencing (a resolved status cannot be trusted either), never resend its payload.
-  const fenceStatus: PendingRequestStatus = status === "superseded" || status === "rejected" ? status : "unresolved";
-  return deepFreeze({
-    ...base,
-    status: fenceStatus,
-    payload: { message: "", request_key: r.requestKey, revision },
-    payloadUnavailable: true as const,
-  });
+  // Unknown schema / damaged: no field of it can be trusted, the claimed status included. Fence the thread and
+  // never resend; only a recovery read or an acknowledged new request in that thread resolves it.
+  const { supersededBy: _untrusted, ...identity } = base as typeof base & { supersededBy?: string };
+  return deepFreeze({ ...identity, status: "unresolved" as const, payload: placeholder, payloadUnavailable: true as const });
 }
 
 function encodeRow(principal: PendingStorePrincipal, record: PendingRequestRecord, now: Date): StoredRow {
@@ -108,6 +118,7 @@ function encodeRow(principal: PendingStorePrincipal, record: PendingRequestRecor
     payload: structuredClone(record.payload) as SubmitMessageRequest,
     ...(record.supersededBy ? { supersededBy: record.supersededBy } : {}),
     ...(record.projectId ? { projectId: record.projectId } : {}),
+    ...(record.payloadUnavailable ? { payloadUnavailable: true as const } : {}),
     createdAt: record.createdAt ?? now.toISOString(),
     updatedAt: now.toISOString(),
   };

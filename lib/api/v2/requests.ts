@@ -142,13 +142,18 @@ export class RecoveryNotPermittedError extends Error {
 }
 
 /**
- * The pending record could not be stored durably, so the request was NOT sent (fail closed). The minted key was
- * never used on the wire; nothing was admitted.
+ * The pending-request store could not be trusted, so NOTHING was sent (fail closed):
+ * - `read_failed`: the preflight re-read of stored records (e.g. another tab's unresolved request) failed. A stale
+ *   cache is not conservative, so no key was minted and no POST was made.
+ * - `write_failed`: the new record could not be stored durably before the POST. The minted key was never used on
+ *   the wire; nothing was admitted.
  */
 export class PendingStoreError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  readonly reason: "read_failed" | "write_failed";
+  constructor(message: string, options?: { cause?: unknown; reason?: "read_failed" | "write_failed" }) {
     super(message);
     this.name = "PendingStoreError";
+    this.reason = options?.reason ?? "write_failed";
     if (options?.cause !== undefined) (this as { cause?: unknown }).cause = options.cause;
   }
 }
@@ -166,6 +171,11 @@ export interface ReconcileReport {
   latest: MessageResult | null;
   /** Outcomes of read-only recovery of local records that the server did not report as in flight. */
   recovered: RequestOutcome[];
+  /**
+   * The store could not be re-read: local records (incl. other tabs') are not trustworthy. Nothing may be submitted
+   * until a refresh succeeds; the caller shows an "unavailable" state and offers a read-only re-check.
+   */
+  storeUnavailable: boolean;
   /** Local records that still fence the thread after reconciliation. */
   fenced: PendingRequestRecord[];
 }
@@ -233,6 +243,8 @@ export class RequestCoordinator {
   private readonly lastState = new Map<string, MessageResult>();
 
   private readonly threadLock: ThreadLock | null;
+  /** Whether the last store re-read succeeded (stores without `refresh` are always trusted). */
+  private storeTrusted = true;
   /** Record a new write replaced, kept until the write is durable (restored if it fails). */
   private readonly replaced = new Map<string, PendingRequestRecord | undefined>();
   private readonly now: () => Date;
@@ -255,7 +267,7 @@ export class RequestCoordinator {
    */
   async submitNew(threadId: string, input: SubmittedInput, context: SubmitContext = {}): Promise<RequestOutcome> {
     return this.guarded(threadId, async () => {
-      await this.refreshStore();
+      await this.refreshForAdmission();
       this.assertCanStart(threadId);
       const record = this.persist({ ...input, request_key: createRequestKey(this.keySource), revision: 1 }, threadId, context.projectId);
       await this.ensureDurable(record);
@@ -286,7 +298,7 @@ export class RequestCoordinator {
     if (answer.confirmation !== undefined) payload.confirmation = answer.confirmation;
     const threadId = previous.thread_id;
     return this.guarded(threadId, async () => {
-      await this.refreshStore();
+      await this.refreshForAdmission();
       this.assertCanStart(threadId, um.request_key);
       const record = this.persist(payload, threadId, previous.project_id);
       await this.ensureDurable(record);
@@ -306,7 +318,7 @@ export class RequestCoordinator {
     }
     const threadId = serverSaid.thread_id;
     return this.guarded(threadId, async () => {
-      await this.refreshStore();
+      await this.refreshForAdmission();
       const stored = this.store.get(um.request_key);
       const payload: SubmitMessageRequest =
         stored && stored.revision === um.revision && !stored.payloadUnavailable
@@ -322,8 +334,9 @@ export class RequestCoordinator {
   /**
    * Explicit "start a new request" after `ambiguous`, `expired`, an overdue run or an unknown outcome. Mints a
    * NEW key. Requires the caller to acknowledge that the model may generate again (shown to the user). This is
-   * the ONLY way past the unresolved fence: earlier unresolved keys of the thread are marked `superseded`
-   * (with `supersededBy`) and stay in the store, still recoverable by key.
+   * the ONLY way past the unresolved fence: earlier unresolved keys of THIS thread are marked `superseded`
+   * (with `supersededBy`) and stay in the store, still recoverable by key. Records of other threads are never
+   * touched (a restart in a new thread leaves the old thread's request fenced and independently recoverable).
    */
   async startNewRequest(
     threadId: string,
@@ -333,7 +346,7 @@ export class RequestCoordinator {
   ): Promise<RequestOutcome> {
     if (ack?.acknowledgeMayRegenerate !== true) throw new RecoveryNotPermittedError("Starting a new request must be explicitly acknowledged");
     return this.guarded(threadId, async () => {
-      await this.refreshStore();
+      await this.refreshForAdmission();
       const last = this.lastState.get(threadId);
       if (last && (last.state === "pending" || last.state === "running") && !last.running_overdue) {
         throw new LocalSubmitGuardError("request_in_flight");
@@ -402,9 +415,9 @@ export class RequestCoordinator {
    */
   async reconcileThread(thread: Thread, options: { latestMessageId?: string | null; signal?: AbortSignal } = {}): Promise<ReconcileReport> {
     const { signal } = options;
-    await this.refreshStore();
+    const storeUnavailable = !(await this.refreshForReading());
     // This tab is submitting in the thread right now: the live submission owns its record and state.
-    if (this.submitting.has(thread.id)) return { latest: null, recovered: [], fenced: this.unresolvedRequests(thread.id) };
+    if (this.submitting.has(thread.id)) return { latest: null, recovered: [], storeUnavailable, fenced: this.unresolvedRequests(thread.id) };
     let latest: MessageResult | null = null;
     try {
       if (thread.in_flight) latest = await this.followInFlight(thread, signal);
@@ -421,7 +434,7 @@ export class RequestCoordinator {
       if (signal?.aborted) break;
       recovered.push(await this.recover(record, signal));
     }
-    return { latest, recovered, fenced: this.unresolvedRequests(thread.id) };
+    return { latest, recovered, storeUnavailable, fenced: this.unresolvedRequests(thread.id) };
   }
 
   /**
@@ -503,18 +516,47 @@ export class RequestCoordinator {
       const prior = this.replaced.get(record.requestKey);
       if (prior) this.store.put(prior);
       else this.store.delete(record.requestKey);
-      throw new PendingStoreError("The request could not be stored durably; it was not sent", { cause });
+      throw new PendingStoreError("The request could not be stored durably; it was not sent", { cause, reason: "write_failed" });
     }
   }
 
-  /** Picks up records other tabs wrote. A failed refresh keeps the cached records (never fewer fences). */
-  private async refreshStore() {
+  /**
+   * Preflight of every path that can admit AI work: re-reads the store (other tabs' records). A failed read is NOT
+   * conservative — a stale or empty cache can miss another tab's unresolved request — so it throws
+   * `PendingStoreError("read_failed")` BEFORE any key is minted or anything is sent. Web Locks do not replace this.
+   */
+  private async refreshForAdmission() {
     if (!this.store.refresh) return;
     try {
       await this.store.refresh();
-    } catch {
-      /* keep the cache: it only ever errs towards fencing */
+      this.storeTrusted = true;
+    } catch (cause) {
+      this.storeTrusted = false;
+      throw new PendingStoreError("Stored requests could not be re-read; nothing was sent", { cause, reason: "read_failed" });
     }
+  }
+
+  /** Read-only paths: refresh if possible; a failure only marks the store untrusted (no admission until it succeeds). */
+  private async refreshForReading(): Promise<boolean> {
+    if (!this.store.refresh) return true;
+    try {
+      await this.store.refresh();
+      this.storeTrusted = true;
+      return true;
+    } catch {
+      this.storeTrusted = false;
+      return false;
+    }
+  }
+
+  /** Re-reads the store (read-only). `true` when its records can be trusted again. */
+  verifyStore(): Promise<boolean> {
+    return this.refreshForReading();
+  }
+
+  /** `false` after the last store re-read failed: submissions are refused until a re-read succeeds. */
+  isStoreTrusted(): boolean {
+    return this.storeTrusted;
   }
 
   /** Records are immutable: a status change stores a new frozen record with the same frozen payload. */

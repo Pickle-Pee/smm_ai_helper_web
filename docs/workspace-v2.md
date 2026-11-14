@@ -67,14 +67,23 @@ not cancelled, repeated or reclassified. `running_overdue` is shown as a hint, n
    fail closed if it cannot be written).
 2. 503 / network / timeout → read-only `getRequestByKey`; never a second POST.
 3. Recovery `404` → `unknown / no_visible_record`: «не доказывает, что генерация не запускалась»; nothing is resent.
-4. While a thread has an unresolved record, normal sending is refused (`unresolved_request`). «Проверить статус» only
+4. Every path that can admit AI work (new request, clarification, same-key resend, acknowledged restart) first
+   re-reads the pending store; if that read fails, `PendingStoreError("read_failed")` is raised **before** a key is
+   minted or anything is sent (a stale cache could miss another tab's unresolved request). Read-only reconciliation
+   with a failed re-read reports the store as unavailable and keeps the thread blocked until «Проверить статус»
+   re-reads it successfully.
+5. While a thread has an unresolved record, normal sending is refused (`unresolved_request`). «Проверить статус» only
    reads. Opening a thread reconciles read-only: `Thread.in_flight` → follow; latest request → `inspect`; other local
    records → `recover`.
-5. Same-key resend only on the server's `next_action: "resubmit_same_key"` («Отправить тот же запрос»).
-6. A new key only through «Начать новый запрос…»: a dialog with the regeneration warning and a required checkbox,
-   then `startNewRequest(..., { acknowledgeMayRegenerate: true })`. The original stored payload is reused; earlier keys
-   stay in the store as `superseded`. If the earlier request is still running (overdue), the new request goes to a new
-   thread of the same project (one in-flight request per thread is a server rule).
+6. Same-key resend only on the server's `next_action: "resubmit_same_key"` («Отправить тот же запрос»).
+7. A new key only through «Начать новый запрос…»: a dialog with the regeneration warning and a required checkbox,
+   then `startNewRequest(..., { acknowledgeMayRegenerate: true })`. The original stored payload is reused.
+   * Same thread (earlier outcome unknown, `ambiguous`, `expired`, failed): the earlier unresolved keys of that thread
+     stay in the store as `superseded` (recoverable by key).
+   * Earlier request still `pending` / `running` (overdue): one in-flight request per thread is a server rule, so the
+     new request goes to a **new thread** of the same project with its own key. The earlier request is **not**
+     superseded, cancelled or deleted — its thread keeps the record (still fencing) and stays independently
+     recoverable; the new thread only shows a link back to it.
 
 ## 4. Pending request storage
 
@@ -92,8 +101,9 @@ not cancelled, repeated or reclassified. `running_overdue` is shown as a hint, n
   poisoned until a successful `refresh()`);
 * `refresh()` before every preflight reloads rows of other tabs; `BroadcastChannel` nudges other tabs after commits;
   optional Web Locks per thread (`webLocksThreadLock`); the server's `409 thread_busy` stays authoritative;
-* versioned: `DB_VERSION` owns the layout (migrations in `upgrade()`), rows carry `schemaVersion`; undecodable rows
-  keep fencing their thread (`payloadUnavailable`, never resent);
+* versioned: `DB_VERSION` owns the layout (migrations in `upgrade()`), rows carry `schemaVersion`; an undecodable
+  row (unknown version, damaged payload) always fences its thread as `unresolved`, whatever status it claims (even
+  `rejected` / `superseded`), and its payload is never resent (`payloadUnavailable`, preserved on rewrite);
 * retention: `rejected` / `superseded` rows older than 30 days are deleted; fencing rows are kept until resolved;
 * account switch: `purgeOtherPrincipals()`; logout: `clearPrincipalRecords(indexedDB, userId)`.
 

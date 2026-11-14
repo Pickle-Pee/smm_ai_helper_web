@@ -90,6 +90,11 @@ export interface ThreadDetailView {
   status: "loading" | "ready" | "error" | "not_found";
   messages: ThreadMessageView[];
   request: ThreadRequestView;
+  /**
+   * Set on a thread created by an explicit restart while the earlier request was still pending/running in another
+   * thread. That earlier request is NOT superseded or cancelled: it stays fenced and recoverable in its own thread.
+   */
+  restartedFrom?: { threadId: string; title: string } | null;
 }
 
 export interface WorkspaceV2State {
@@ -139,7 +144,12 @@ const GUARD_TEXT: Record<LocalSubmitGuardError["reason"], string> = {
   unresolved_request:
     "Исход предыдущего запроса в этом диалоге не подтверждён. Проверьте его статус или явно начните новый запрос — автоматически ничего не отправляется.",
 };
-const STORE_TEXT = "Не удалось надёжно сохранить запрос перед отправкой, поэтому он не отправлен.";
+const STORE_TEXT: Record<PendingStoreError["reason"], string> = {
+  write_failed: "Не удалось надёжно сохранить запрос перед отправкой, поэтому он не отправлен.",
+  read_failed:
+    "Не удалось прочитать сохранённые в этом браузере запросы (в том числе из других вкладок). Ничего не отправлено: новые запросы заблокированы, пока проверка не пройдёт.",
+};
+const STORE_READ_REFUSAL = { reason: "store_unavailable" as const, text: STORE_TEXT.read_failed };
 const UNKNOWN_TEXT: Record<"status_unavailable" | "no_visible_record", string> = {
   status_unavailable:
     "Ответ на запрос потерян, а статус пока прочитать не удалось. Запрос не отправляется повторно — проверьте статус позже.",
@@ -316,6 +326,8 @@ export class WorkspaceV2Controller {
       for (const outcome of report.recovered) this.applyOutcome(threadId, outcome);
       if (report.latest) this.applyResult(threadId, report.latest, { fromReconcile: true });
       else this.setRequest(threadId, {});
+      // Local records could not be re-read: the thread stays blocked for new requests until a re-check succeeds.
+      if (report.storeUnavailable) this.setRequest(threadId, { refusal: STORE_READ_REFUSAL });
       if (report.fenced.length && !report.latest && !this.coordinator.isSubmitting(threadId)) {
         this.setRequest(threadId, { phase: "unknown", unknown: this.state.details[threadId]?.request.unknown ?? { reason: "status_unavailable", text: UNKNOWN_TEXT.status_unavailable } });
       }
@@ -350,7 +362,14 @@ export class WorkspaceV2Controller {
     if (!text || !project) return { error: { text: "Выберите проект из тестовых данных.", code: null, status: null, requestId: null, retryAfterSeconds: null, resetsAt: null } };
     if (!project.canSubmit) return { error: { text: "Недостаточно прав: роль наблюдателя не может отправлять запросы.", code: "forbidden", status: null, requestId: null, retryAfterSeconds: null, resetsAt: null } };
     if (this.state.creating) return { error: { text: GUARD_TEXT.submission_in_progress, code: null, status: null, requestId: null, retryAfterSeconds: null, resetsAt: null } };
+    // Synchronous check-and-set first: a second click in the same tick must not pass the guard.
     this.set({ creating: true, createError: null });
+    // Fail closed before creating anything when stored requests cannot be re-read.
+    if (!(await this.coordinator.verifyStore())) {
+      const view = { text: STORE_TEXT.read_failed, code: null, status: null, requestId: null, retryAfterSeconds: null, resetsAt: null };
+      this.set({ creating: false, createError: view });
+      return { error: view };
+    }
     let thread: Thread;
     try {
       thread = await this.api.createThread(options.projectId, { kind: "copilot", title: titleFromText(text) }, { idempotencyKey: this.newId() });
@@ -401,9 +420,13 @@ export class WorkspaceV2Controller {
 
   /**
    * Explicit, confirmed "start a new request" (NEW key) after `ambiguous`, `expired`, an unknown outcome or a
-   * failure. The caller must pass the acknowledgement the user gave in the warning dialog. If the earlier request
-   * is still running (overdue), the new request goes to a NEW thread of the same project (the server allows one
-   * in-flight request per thread). Earlier keys stay stored as `superseded`.
+   * failure. The caller must pass the acknowledgement the user gave in the warning dialog.
+   * - Same thread (earlier request settled or its outcome unknown): earlier unresolved keys of that thread are
+   *   stored as `superseded` (still recoverable by key).
+   * - Earlier request still `pending` / `running` (e.g. overdue): the server allows one in-flight request per
+   *   thread, so the new request goes to a NEW thread of the same project with its own fresh key. The earlier
+   *   request is NOT superseded, cancelled or deleted: its thread keeps its record (still fencing) and stays
+   *   independently recoverable. The new thread only links back to it (`restartedFrom`).
    */
   async startNewRequest(
     threadId: string,
@@ -424,7 +447,8 @@ export class WorkspaceV2Controller {
     if (latest && (latest.state === "running" || latest.state === "pending")) {
       const created = await this.api.createThread(projectId, { kind: "copilot", title: titleFromText(message) }, { idempotencyKey: this.newId() });
       this.upsertSummary(created);
-      this.setDetail(created.id, () => ({ status: "ready", messages: [] }));
+      const previousTitle = this.state.threads.find((t) => t.id === threadId)?.title ?? "";
+      this.setDetail(created.id, () => ({ status: "ready", messages: [], restartedFrom: { threadId, title: previousTitle } }));
       target = created.id;
     }
     if (scenario) this.simulation?.setThreadScenario(target, scenario);
@@ -434,6 +458,11 @@ export class WorkspaceV2Controller {
 
   /** "Check status": read-only recovery of every fenced key. Never sends, never mints a key. */
   async checkStatus(threadId: string): Promise<void> {
+    // First make the local records trustworthy again (read-only); without that nothing else is decided.
+    if (!(await this.coordinator.verifyStore())) {
+      this.setRequest(threadId, { refusal: STORE_READ_REFUSAL });
+      return;
+    }
     const records = this.coordinator.unresolvedRequests(threadId);
     this.setRequest(threadId, { phase: "submitting", refusal: null });
     let last: RequestOutcome | null = null;
@@ -500,6 +529,7 @@ export class WorkspaceV2Controller {
     const detail = this.state.details[threadId];
     const projectId = this.threadDtos.get(threadId)?.project_id;
     if (!this.canSubmitInProject(projectId)) return false;
+    if (!this.coordinator.isStoreTrusted()) return false;
     if (this.coordinator.isSubmitting(threadId) || this.coordinator.unresolvedRequests(threadId).length) return false;
     const status = detail?.request.execution?.status;
     return !(status === "pending" || status === "running" || status === "running_overdue" || status === "ambiguous" || status === "expired");
@@ -521,7 +551,7 @@ export class WorkspaceV2Controller {
         const phase = error.reason === "submission_in_progress" ? "submitting" : error.reason === "unresolved_request" ? this.fencedPhase(threadId) : "refused";
         this.setRequest(threadId, { phase, refusal: { reason: error.reason, text: GUARD_TEXT[error.reason] } });
       } else if (error instanceof PendingStoreError) {
-        this.setRequest(threadId, { phase: "refused", refusal: { reason: "store_unavailable", text: STORE_TEXT } });
+        this.setRequest(threadId, { phase: "refused", refusal: { reason: "store_unavailable", text: STORE_TEXT[error.reason] } });
       } else if (error instanceof RecoveryNotPermittedError) {
         this.setRequest(threadId, { phase: "refused", refusal: { reason: "not_permitted", text: "Это действие сейчас недоступно для запроса." } });
       } else {
