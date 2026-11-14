@@ -159,7 +159,7 @@ export const resultStatusLabel: Record<ResultStatus, string> = {
 };
 
 /** Plain-text rendering of a result for the clipboard. */
-export function resultToPlainText(result: StructuredResult): string {
+export function resultToPlainText(result: Pick<StructuredResult, "title" | "summary" | "blocks">): string {
   const lines: string[] = [result.title, "", result.summary];
   for (const block of result.blocks) {
     lines.push("");

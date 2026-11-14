@@ -21,7 +21,7 @@ export function Briefing() {
   const now = useNow();
   const { profile } = useAccount();
   const { projects, status: projectsStatus } = useProjects();
-  const { threads, createThread } = useWorkspace();
+  const { threads, prepareDraft } = useWorkspace();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const brandSelectId = useId();
 
@@ -58,15 +58,16 @@ export function Briefing() {
       textareaRef.current?.focus();
       return;
     }
-    const thread = createThread({ projectId: brand?.id ?? null, scenarioId, text: clean });
+    // The AI Workspace sends requests itself (Web API v2 test data); here we only hand over a draft.
+    prepareDraft({ projectId: brand?.id ?? null, scenarioId, text: clean });
     notify({
       tone: "info",
-      title: "Запрос сохранён в AI Workspace",
-      description: "Демо-версия: AI не подключён, ответ не будет сгенерирован.",
+      title: "Черновик открыт в AI Workspace",
+      description: "Проверьте проект и отправьте запрос там. AI не подключён: ответы берутся из тестовых данных.",
     });
     setText("");
     setScenarioId(null);
-    router.push(`/workspace?thread=${thread.id}`);
+    router.push("/workspace?new=1");
   }
 
   return (

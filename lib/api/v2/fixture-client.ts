@@ -139,6 +139,7 @@ export class FixtureWebApiV2Client implements WebApiV2 {
   private readonly seededPages = new Map<string, ThreadMessagesPage>();
   private readonly damagedResults = new Map<string, ErrorCode>();
   private readonly createIdempotency = new Map<string, { threadId: string; fingerprint: string }>();
+  private readonly threadScenarios = new Map<string, SubmitScenario>();
 
   constructor(options: FixtureClientOptions = {}) {
     this.scenario = options.scenario ?? "direct_result";
@@ -152,6 +153,14 @@ export class FixtureWebApiV2Client implements WebApiV2 {
   /** Changes how the simulated server answers the next NEW request. */
   setScenario(scenario: SubmitScenario) {
     this.scenario = scenario;
+  }
+
+  /**
+   * How the simulated server answers the next NEW request in ONE thread (overrides `setScenario` there). Lets the
+   * Workspace preview pick a labelled test answer per thread without races between threads. Fixture-only.
+   */
+  setThreadScenario(threadId: string, scenario: SubmitScenario) {
+    this.threadScenarios.set(threadId, scenario);
   }
 
   /* ---------------- auth ---------------- */
@@ -288,9 +297,10 @@ export class FixtureWebApiV2Client implements WebApiV2 {
     if (!isRequestKey(body.request_key) || !Number.isInteger(body.revision) || body.revision < 1 || body.revision > 20 || !body.message?.trim()) {
       throw this.error("submitMessage", 422, fixtures.errors.invalidRequest());
     }
+    const scenario = this.threadScenarios.get(threadId) ?? this.scenario;
     // Limits are evaluated before anything is stored or admitted (README §9.1).
-    if (this.scenario === "rate_limited") throw this.error("submitMessage", 429, fixtures.errors.rateLimited());
-    if (this.scenario === "quota_exceeded") throw this.error("submitMessage", 429, fixtures.errors.quotaExceeded());
+    if (scenario === "rate_limited") throw this.error("submitMessage", 429, fixtures.errors.rateLimited());
+    if (scenario === "quota_exceeded") throw this.error("submitMessage", 429, fixtures.errors.quotaExceeded());
 
     const { request_key: requestKey, revision, ...input } = body;
     const fingerprint = canonicalJson(input);
@@ -324,14 +334,14 @@ export class FixtureWebApiV2Client implements WebApiV2 {
 
     if (revision !== 1) throw this.error("submitMessage", 409, fixtures.errors.revisionConflict());
     if (this.inFlight(threadId)) throw this.error("submitMessage", 409, fixtures.errors.threadBusy());
-    if (this.scenario === "unavailable_before_admission") {
+    if (scenario === "unavailable_before_admission") {
       throw this.error("submitMessage", 503, fixtures.errors.temporarilyUnavailable());
     }
     const record: RequestRecord = { threadId, requestKey, revisions: [], listed: true };
     this.requests.set(requestKey, record);
-    const rev = this.newRevision(record, 1, fingerprint, input, this.scenario);
-    this.admit(record, rev, this.scenario);
-    if (this.scenario === "unavailable_after_admission") {
+    const rev = this.newRevision(record, 1, fingerprint, input, scenario);
+    this.admit(record, rev, scenario);
+    if (scenario === "unavailable_after_admission") {
       throw this.error("submitMessage", 503, fixtures.errors.temporarilyUnavailable());
     }
     return this.submitResponse(rev.result);

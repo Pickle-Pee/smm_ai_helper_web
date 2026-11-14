@@ -7,23 +7,61 @@ import { IconButton, Button } from "@/components/ui/Button";
 import { SearchField, Select } from "@/components/ui/Form";
 import { BrandDot } from "@/components/ui/Monogram";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
-import { useProjects } from "@/features/projects/store";
 import { dayBucket, dayBucketLabel, formatRelative, type DayBucket } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cx } from "@/lib/cx";
-import type { ID } from "@/lib/types";
-import { filterThreads } from "../model";
-import { useWorkspace } from "../store";
+import type { BrandColor, ID } from "@/lib/types";
 import styles from "../Workspace.module.css";
 
-export function ThreadList({ activeId, onNavigate, onNew }: { activeId: ID | null; onNavigate?: () => void; onNew: () => void }) {
+export interface ThreadListItem {
+  id: ID;
+  title: string;
+  projectId: ID | null;
+  updatedAt: string;
+  /**
+   * `running`: a request is pending/running on the server. `unresolved`: the outcome of the latest request is not
+   * confirmed (unknown after a lost response, or `ambiguous`) — sending in the thread is blocked until resolved.
+   */
+  requestState?: "running" | "unresolved" | null;
+}
+
+const REQUEST_STATE_TEXT = { running: "Запрос выполняется", unresolved: "Исход запроса не подтверждён" } as const;
+
+export interface ThreadListProject {
+  id: ID;
+  name: string;
+  color: BrandColor;
+}
+
+/** Presentational thread history (search by title, brand filter, day groups). Data comes from the caller. */
+export function ThreadList({
+  threads,
+  projects,
+  status,
+  onRetry,
+  activeId,
+  onNavigate,
+  onNew,
+}: {
+  threads: ThreadListItem[];
+  projects: ThreadListProject[];
+  status: "loading" | "ready" | "error";
+  onRetry: () => void;
+  activeId: ID | null;
+  onNavigate?: () => void;
+  onNew: () => void;
+}) {
   const now = useNow();
-  const { threads, status, retry } = useWorkspace();
-  const { projects, byId } = useProjects();
+  const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const [query, setQuery] = useState("");
   const [projectFilter, setProjectFilter] = useState<ID | "all">("all");
 
-  const filtered = useMemo(() => filterThreads(threads, query, projectFilter), [threads, query, projectFilter]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase("ru");
+    return [...threads]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .filter((t) => (projectFilter === "all" || t.projectId === projectFilter) && (!q || t.title.toLocaleLowerCase("ru").includes(q)));
+  }, [threads, query, projectFilter]);
   const groups = useMemo(() => {
     const map = new Map<DayBucket, typeof filtered>();
     if (!now) return map;
@@ -63,7 +101,7 @@ export function ThreadList({ activeId, onNavigate, onNew }: { activeId: ID | nul
             ))}
           </LoadingRegion>
         )}
-        {status === "error" && <ErrorState compact onRetry={retry} title="Диалоги не загрузились" description="История временно недоступна." />}
+        {status === "error" && <ErrorState compact onRetry={onRetry} title="Диалоги не загрузились" description="История временно недоступна." />}
         {status === "ready" && threads.length === 0 && (
           <EmptyState compact icon={MessagesSquare} title="Диалогов пока нет" description="Начните с одного из сценариев — история появится здесь." />
         )}
@@ -93,7 +131,6 @@ export function ThreadList({ activeId, onNavigate, onNew }: { activeId: ID | nul
               <ul>
                 {items.map((t) => {
                   const project = t.projectId ? byId.get(t.projectId) : undefined;
-                  const needsReview = t.messages.some((m) => m.result?.status === "review");
                   const active = t.id === activeId;
                   return (
                     <li key={t.id}>
@@ -115,9 +152,13 @@ export function ThreadList({ activeId, onNavigate, onNew }: { activeId: ID | nul
                           )}
                           <span className={styles.threadTime}>{now ? formatRelative(t.updatedAt, now) : ""}</span>
                         </span>
-                        {needsReview && (
-                          <span className={styles.reviewDot} title="Есть результат на проверке">
-                            <span className="sr-only">Есть результат на проверке</span>
+                        {t.requestState && (
+                          <span
+                            className={cx(styles.reviewDot, t.requestState === "unresolved" && styles.attentionDot)}
+                            title={REQUEST_STATE_TEXT[t.requestState]}
+                            data-request-state={t.requestState}
+                          >
+                            <span className="sr-only">{REQUEST_STATE_TEXT[t.requestState]}</span>
                           </span>
                         )}
                       </Link>

@@ -1,0 +1,262 @@
+/* AI request states and test-data result cards in the AI Workspace (Web API v2 fixture transport). */
+
+/* Test-data result: dashed neutral frame (never the violet "AI" edge — no model produced it). */
+.fixtureCard {
+  margin-top: var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.fixtureCard > header {
+  padding: var(--space-4) var(--space-5) 0;
+}
+
+.fixtureBlocks {
+  padding: var(--space-4) var(--space-5);
+}
+
+.fixtureFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  font-size: var(--text-sm);
+}
+
+.author {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.about {
+  flex-basis: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.about summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.about dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.about dd {
+  margin: 0;
+}
+
+.unavailableBody {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--color-text-secondary);
+}
+
+.unavailableBody svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.unavailableTitle {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------- Request status panel ---------- */
+.status {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 820px;
+  margin: 0 auto var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  min-width: 0;
+}
+
+.statusWarning {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
+}
+
+.statusHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.statusText {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  max-width: 72ch;
+}
+
+.statusError {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.statusActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.spinner {
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* ---------- Clarification form ---------- */
+.clarify {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 var(--space-5) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.clarify fieldset {
+  display: grid;
+  gap: var(--space-2);
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.clarify legend {
+  margin-bottom: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--text-sm);
+}
+
+.check input {
+  margin-top: 3px;
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+/* ---------- Composer extras ---------- */
+.simBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 820px;
+  margin: 0 auto var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.simSelect {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 360px;
+}
+
+.notice {
+  max-width: 820px;
+  margin: 0 auto var(--space-3);
+}
+
+.diagnostics {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.diagnostics code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.revisionNote {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.contextList {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: rgb(255 255 255 / 0.8);
+  list-style: none;
+}
+
+@media (max-width: 560px) {
+  .fixtureCard > header,
+  .fixtureBlocks,
+  .fixtureFooter,
+  .unavailableBody {
+    padding-inline: var(--space-3);
+  }
+
+  .clarify {
+    margin-inline: var(--space-3);
+  }
+}
+
+.reopen {
+  margin-top: var(--space-2);
+}
+
+@media (max-width: 767px) {
+  .simBar {
+    flex-wrap: nowrap;
+    margin-bottom: var(--space-1);
+  }
+
+  .simSelect {
+    max-width: none;
+  }
+
+  /* Visually hidden on phones; still the select's accessible name. */
+  .simLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .status {
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+}

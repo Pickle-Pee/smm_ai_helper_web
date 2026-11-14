@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, type FormEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, type FormEvent, type ReactNode } from "react";
 import { CloudOff, Paperclip, SendHorizontal } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import styles from "../Workspace.module.css";
@@ -14,13 +14,20 @@ interface ComposerProps {
   onChange: (value: string) => void;
   onSubmit: () => void;
   placeholder?: string;
+  /** Disables sending (the text stays editable unless `readOnly`). */
   disabled?: boolean;
+  /** Explains why sending is disabled (announced and linked to the field). */
+  disabledReason?: ReactNode;
+  /** Extra controls above the input (e.g. the test-answer picker of the preview). */
+  toolbar?: ReactNode;
+  /** Footnote under the composer; defaults to the local-only demo note. */
+  note?: ReactNode;
 }
 
 const MAX_HEIGHT = 220;
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
-  { value, onChange, onSubmit, placeholder = "Опишите задачу или задайте вопрос по бренду…", disabled },
+  { value, onChange, onSubmit, placeholder = "Опишите задачу или задайте вопрос по бренду…", disabled, disabledReason, toolbar, note },
   ref,
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -50,6 +57,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   return (
     <form className={styles.composer} onSubmit={submit}>
+      {toolbar}
       <div className={styles.composerBox}>
         <label htmlFor="workspace-composer" className="sr-only">
           Сообщение для AI
@@ -60,9 +68,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           rows={1}
           value={value}
           placeholder={placeholder}
-          disabled={disabled}
           className={styles.composerInput}
-          aria-describedby="workspace-composer-note"
+          aria-describedby={disabled && disabledReason ? "workspace-composer-reason workspace-composer-note" : "workspace-composer-note"}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -81,9 +88,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           </Button>
         </div>
       </div>
+      {disabled && disabledReason && (
+        <p className={styles.composerNote} id="workspace-composer-reason" role="status">
+          {disabledReason}
+        </p>
+      )}
       <p className={styles.composerNote} id="workspace-composer-note">
         <CloudOff size={13} aria-hidden />
-        Демо-версия: AI не подключён. Сообщения сохраняются только в этой вкладке и никуда не отправляются.
+        {note ?? "Демо-версия: AI не подключён. Сообщения сохраняются только в этой вкладке и никуда не отправляются."}
       </p>
     </form>
   );
