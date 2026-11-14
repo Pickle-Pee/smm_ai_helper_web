@@ -17,6 +17,7 @@ import type {
   MessageResult,
   NextAction,
   Project,
+  ProjectBrand,
   ResultKind,
   ResultSnapshot,
   Schemas,
@@ -66,11 +67,69 @@ export interface WorkspaceProjectView {
   project: UiProject;
   /** From `Project.permissions.can_submit` (server-computed for the caller; a viewer cannot submit). */
   canSubmit: boolean;
+  /** From `Project.permissions.can_edit`. Informational only: project/brand writes are not in `WebApiV2` yet. */
+  canEdit: boolean;
   role: Project["role"];
 }
 
 export function presentWorkspaceProject(dto: Project): WorkspaceProjectView {
-  return { project: toUiProject(dto), canSubmit: dto.permissions.can_submit, role: dto.role };
+  return { project: toUiProject(dto), canSubmit: dto.permissions.can_submit, canEdit: dto.permissions.can_edit, role: dto.role };
+}
+
+/** Readable role of the caller in a project (server-computed `Project.role`). */
+export const PROJECT_ROLE_LABEL: Record<Project["role"], string> = {
+  owner: "Владелец",
+  editor: "Редактор",
+  viewer: "Наблюдатель",
+};
+
+/**
+ * Brand context of one project (`getProjectBrand`), read-only. Content fields only plus readable provenance
+ * (who/when updated, whether it was copied from the Telegram bot). `version` is the optimistic-concurrency token
+ * and is kept for diagnostics, never edited here: brand writes are not part of `WebApiV2` yet.
+ */
+export interface BrandContextView {
+  projectId: string;
+  version: number;
+  brandName: string | null;
+  description: string;
+  audience: string;
+  tone: string;
+  goals: string[];
+  channels: string[];
+  industry: string;
+  usp: string;
+  competitors: string[];
+  geography: string;
+  importedFrom: { label: string; at: string; by: string | null } | null;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+const IMPORT_SOURCE_LABEL: Record<string, string> = { telegram_brand_profile: "профиль бренда в Telegram-боте" };
+
+export function presentProjectBrand(dto: ProjectBrand): BrandContextView {
+  const extra = dto.extra ?? {};
+  const who = (u: { display_name?: string | null; is_self: boolean } | null | undefined) => (u ? (u.is_self ? "Вы" : (u.display_name ?? "Участник")) : null);
+  return {
+    projectId: dto.project_id,
+    version: dto.version,
+    brandName: dto.brand_name,
+    description: dto.product_description ?? "",
+    audience: dto.audience ?? "",
+    tone: dto.tone ?? "",
+    goals: [...dto.goals],
+    channels: [...dto.channels],
+    industry: extra.industry ?? "",
+    usp: extra.usp ?? "",
+    competitors: [...(extra.competitors ?? [])],
+    geography: extra.geography ?? "",
+    importedFrom: dto.imported_from
+      ? { label: IMPORT_SOURCE_LABEL[dto.imported_from.source] ?? dto.imported_from.source, at: dto.imported_from.imported_at, by: who(dto.imported_from.imported_by) }
+      : null,
+    updatedAt: dto.updated_at,
+    updatedBy: who(dto.updated_by),
+  };
 }
 
 /** Thread summary for the history list (no messages: history is loaded per thread when it is opened). */

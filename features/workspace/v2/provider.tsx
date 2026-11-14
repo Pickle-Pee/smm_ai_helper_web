@@ -6,8 +6,13 @@ import { createAppWorkspaceController, type WorkspaceV2Controller, type Workspac
 
 /**
  * Holds the AI Workspace controller for the app session (it survives page navigation, not a reload — fixture data
- * and pending requests of the public preview are transient). The controller is created lazily, the first time the
- * Workspace screen asks for it, from the app's Web API v2 transport (fixture-only, `lib/api/v2/mode.ts`).
+ * and pending requests of the public preview are transient). The controller is created lazily, the first time a
+ * screen asks for it, from the app's ONE Web API v2 transport (`useWebApiV2().load`, fixture-only,
+ * `lib/api/v2/mode.ts`).
+ *
+ * Since F3 the same controller is also the single read source of project and Copilot-thread identity for Dashboard,
+ * Projects, project pages, the sidebar and search (`useWorkspaceV2Data`, wrapped by `features/projects/context.tsx`).
+ * There is no second copy of projects or threads anywhere in the app.
  */
 interface Ctx {
   get: () => Promise<WorkspaceV2Controller>;
@@ -31,6 +36,7 @@ const IDLE: WorkspaceV2State = {
   projects: [],
   threads: [],
   details: {},
+  projectDetails: {},
   creating: false,
   createError: null,
 };
@@ -57,6 +63,32 @@ export function useWorkspaceV2(): { controller: WorkspaceV2Controller | null; st
     return () => {
       alive = false;
       current?.stopAll();
+    };
+  }, [ctx]);
+
+  const state = useSyncExternalStore(controller?.subscribe ?? noopSubscribe, controller?.getSnapshot ?? (() => IDLE), () => IDLE);
+  return { controller, state };
+}
+
+/**
+ * Read-only subscription for screens other than the AI Workspace (Dashboard, Projects, project page, sidebar,
+ * search). Starts the one-time project/thread load (reads only) but, unlike `useWorkspaceV2`, never stops polls
+ * or loads when it unmounts: navigating between sections must not change the state of an active request.
+ */
+export function useWorkspaceV2Data(): { controller: WorkspaceV2Controller | null; state: WorkspaceV2State } {
+  const ctx = useContext(WorkspaceV2Context);
+  if (!ctx) throw new Error("useWorkspaceV2Data must be used inside <WorkspaceV2Provider>");
+  const [controller, setController] = useState<WorkspaceV2Controller | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void ctx.get().then((c) => {
+      if (!alive) return;
+      setController(c);
+      void c.start();
+    });
+    return () => {
+      alive = false;
     };
   }, [ctx]);
 

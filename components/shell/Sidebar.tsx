@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { FlaskConical, Plus } from "lucide-react";
 import { Logo, LogoMark } from "@/components/brand/Logo";
 import { BrandDot } from "@/components/ui/Monogram";
-import { useProjects } from "@/features/projects/store";
+import { useProjectContext } from "@/features/projects/context";
 import { useAccount } from "@/features/account/store";
 import { initials } from "@/lib/format";
 import { cx } from "@/lib/cx";
@@ -28,9 +28,10 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { projects, status } = useProjects();
+  // Same Web API v2 project ids as Dashboard, Projects and the AI Workspace (F3).
+  const { projects, status, selectedProjectId } = useProjectContext();
   const { workspace } = useAccount();
-  const pinned = projects.filter((p) => p.status !== "archived").slice(0, 5);
+  const pinned = projects.map((p) => p.project).filter((p) => p.status !== "archived").slice(0, 5);
 
   return (
     <aside className={styles.sidebar} aria-label="Основная навигация">
@@ -67,16 +68,19 @@ export function Sidebar() {
               {pinned.map((p) => {
                 const href = `/projects/${p.id}`;
                 const active = pathname === href;
+                const current = !active && p.id === selectedProjectId;
                 return (
                   <li key={p.id}>
                     <Link
                       href={href}
                       className={cx(styles.projectLink, active && styles.navLinkActive)}
                       aria-current={active ? "page" : undefined}
-                      title={p.name}
+                      title={current ? `${p.name} — выбранный бренд` : p.name}
+                      data-selected={current || undefined}
                     >
                       <BrandDot color={p.color} />
                       <span className={styles.projectName}>{p.name}</span>
+                      {current && <span className="sr-only"> (выбранный бренд)</span>}
                     </Link>
                   </li>
                 );

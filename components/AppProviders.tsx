@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import { ApiProvider } from "@/lib/api/provider";
 import { AccountProvider } from "@/features/account/store";
-import { ProjectsProvider } from "@/features/projects/store";
+import { LegacyDemoProjectsProvider } from "@/features/projects/store";
+import { ProjectContextProvider } from "@/features/projects/context";
 import { WorkspaceProvider } from "@/features/workspace/store";
 import { WorkspaceV2Provider } from "@/features/workspace/v2/provider";
 import { DocumentsProvider } from "@/features/documents/store";
@@ -11,22 +12,28 @@ import { ToastProvider } from "@/components/ui/Toast";
 
 /**
  * Feature state is kept in separate providers (account, projects, AI workspace, documents).
- * `WorkspaceProvider` is the legacy local demo store still read by Dashboard, Projects, Documents and search;
- * `WorkspaceV2Provider` backs the AI Workspace screen through Web API v2 (fixture transport only).
+ *
+ * - `WorkspaceV2Provider` holds the session's Web API v2 controller (ONE fixture transport from `ApiProvider`). It is
+ *   the single source of project and Copilot-thread identity for every screen; `ProjectContextProvider` adds only
+ *   the session's selected brand on top of it (F3).
+ * - `LegacyDemoProjectsProvider` / `WorkspaceProvider` / `DocumentsProvider` are the legacy demo dataset: Documents
+ *   and its demo brands, draft handoff to the Workspace, and recognising stale legacy links.
  */
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <ApiProvider>
       <AccountProvider>
-        <ProjectsProvider>
+        <LegacyDemoProjectsProvider>
           <WorkspaceProvider>
             <WorkspaceV2Provider>
-              <DocumentsProvider>
-                <ToastProvider>{children}</ToastProvider>
-              </DocumentsProvider>
+              <ProjectContextProvider>
+                <DocumentsProvider>
+                  <ToastProvider>{children}</ToastProvider>
+                </DocumentsProvider>
+              </ProjectContextProvider>
             </WorkspaceV2Provider>
           </WorkspaceProvider>
-        </ProjectsProvider>
+        </LegacyDemoProjectsProvider>
       </AccountProvider>
     </ApiProvider>
   );

@@ -5,11 +5,13 @@ import { selectPendingRequestStore, type PendingStoreSelection } from "@/lib/api
 import {
   presentError,
   presentExecution,
+  presentProjectBrand,
   presentResultError,
   presentSnapshot,
   presentThreadMessage,
   presentThreadSummary,
   presentWorkspaceProject,
+  type BrandContextView,
   type ExecutionView,
   type ThreadMessageView,
   type ThreadSummaryView,
@@ -97,6 +99,19 @@ export interface ThreadDetailView {
   restartedFrom?: { threadId: string; title: string } | null;
 }
 
+/**
+ * One project read by id (`getProject` + `getProjectBrand`) for the project page. Read-only: Web API v2 has no
+ * project/brand writes in `WebApiV2` yet. `not_found` covers unknown ids, other organizations' projects and legacy
+ * demo ids alike (tenant `404`s are indistinguishable by contract).
+ */
+export interface ProjectDetailView {
+  status: "loading" | "ready" | "not_found" | "error";
+  project: WorkspaceProjectView | null;
+  brand: BrandContextView | null;
+  /** The brand read failed while the project itself was readable (brand context shown from the project copy). */
+  brandError: boolean;
+}
+
 export interface WorkspaceV2State {
   status: LoadStatus;
   /** Where pending requests live. `transient` in the public preview (no verified user). */
@@ -105,6 +120,8 @@ export interface WorkspaceV2State {
   projects: WorkspaceProjectView[];
   threads: ThreadSummaryView[];
   details: Readonly<Record<string, ThreadDetailView>>;
+  /** Project pages read by id this session (read-only). */
+  projectDetails: Readonly<Record<string, ProjectDetailView>>;
   /** A thread is being created (double-click guard for "send" on a new conversation). */
   creating: boolean;
   createError: RequestErrorView | null;
@@ -184,6 +201,7 @@ export class WorkspaceV2Controller {
   private readonly threadDtos = new Map<string, Thread>();
   private readonly polls = new Map<string, AbortController>();
   private readonly loads = new Map<string, AbortController>();
+  private readonly projectLoads = new Map<string, Promise<void>>();
   private openThreadId: string | null = null;
   private startPromise: Promise<void> | null = null;
   private disposed = false;
@@ -204,6 +222,7 @@ export class WorkspaceV2Controller {
       projects: [],
       threads: [],
       details: {},
+      projectDetails: {},
       creating: false,
       createError: null,
     };
@@ -286,6 +305,46 @@ export class WorkspaceV2Controller {
     } catch {
       this.set({ status: "error" });
     }
+  }
+
+  /**
+   * Reads one project and its brand context (read-only, `getProject` + `getProjectBrand`) for the project page.
+   * Never writes and never touches requests or threads. Concurrent calls for the same id share one read.
+   */
+  loadProject(projectId: string): Promise<void> {
+    const running = this.projectLoads.get(projectId);
+    if (running) return running;
+    const known = this.state.projectDetails[projectId];
+    if (!known || known.status !== "ready") this.setProjectDetail(projectId, { status: "loading", project: known?.project ?? null, brand: known?.brand ?? null, brandError: false });
+    const task = (async () => {
+      try {
+        const dto = await this.api.getProject(projectId);
+        const project = presentWorkspaceProject(dto);
+        let brand: BrandContextView | null = null;
+        let brandError = false;
+        try {
+          brand = presentProjectBrand(await this.api.getProjectBrand(projectId));
+        } catch (error) {
+          if (toWebApiError(error)?.status === 404) {
+            this.setProjectDetail(projectId, { status: "not_found", project: null, brand: null, brandError: false });
+            return;
+          }
+          brandError = true;
+        }
+        this.setProjectDetail(projectId, { status: "ready", project, brand, brandError });
+      } catch (error) {
+        const err = toWebApiError(error);
+        this.setProjectDetail(projectId, { status: err?.status === 404 ? "not_found" : "error", project: null, brand: null, brandError: false });
+      } finally {
+        this.projectLoads.delete(projectId);
+      }
+    })();
+    this.projectLoads.set(projectId, task);
+    return task;
+  }
+
+  private setProjectDetail(projectId: string, view: ProjectDetailView) {
+    this.set((s) => ({ projectDetails: { ...s.projectDetails, [projectId]: view } }));
   }
 
   projectById(projectId: string | null | undefined): WorkspaceProjectView | null {

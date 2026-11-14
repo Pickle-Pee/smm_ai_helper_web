@@ -6,37 +6,44 @@ import { ChevronDown, CornerDownLeft, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { useAccount } from "@/features/account/store";
-import { useProjects } from "@/features/projects/store";
+import { useProjectContext } from "@/features/projects/context";
 import { useWorkspace } from "@/features/workspace/store";
 import { scenarioPrompt, scenarios } from "@/features/workspace/scenarios";
-import { selectResults } from "@/features/workspace/model";
 import { countLabel, formatWeekday, greeting } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import type { ScenarioId } from "@/lib/types";
 import styles from "./Dashboard.module.css";
 
+/**
+ * Dashboard Briefing (F3): the brand selector lists Web API v2 fixture projects and IS the session's selected
+ * brand (`useProjectContext`), so Projects and the AI Workspace open the same `project_id`. «Открыть в AI
+ * Workspace» only hands over a draft (text, project, scenario, origin): nothing is sent until the user confirms in
+ * the Workspace.
+ */
 export function Briefing() {
   const router = useRouter();
   const { notify } = useToast();
   const now = useNow();
   const { profile } = useAccount();
-  const { projects, status: projectsStatus } = useProjects();
-  const { threads, prepareDraft } = useWorkspace();
+  const { projects, threads, status: projectsStatus, selectedProjectId, selectedProject, selectProject } = useProjectContext();
+  const { prepareDraft } = useWorkspace();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const brandSelectId = useId();
 
-  const selectable = projects.filter((p) => p.status !== "archived");
-  const [projectId, setProjectId] = useState<string>("");
+  const selectable = projects.filter((p) => p.project.status !== "archived");
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
   const [text, setText] = useState("");
 
+  // First visit: the most recently updated active brand becomes the session's brand. An existing selection is kept
+  // as is — a stale one is shown as "not selected", never replaced by another project.
+  const firstActive = selectable.find((p) => p.project.status === "active") ?? selectable[0] ?? null;
   useEffect(() => {
-    if (!projectId && selectable[0]) setProjectId(selectable[0].id);
-  }, [projectId, selectable]);
+    if (projectsStatus === "ready" && !selectedProjectId && firstActive) selectProject(firstActive.project.id);
+  }, [projectsStatus, selectedProjectId, firstActive, selectProject]);
 
-  const brand = projects.find((p) => p.id === projectId) ?? null;
-  const reviewCount = selectResults(threads).filter((r) => r.result.status === "review").length;
-  const activeCount = projects.filter((p) => p.status === "active").length;
+  const brand = selectedProject?.project ?? null;
+  const runningCount = threads.filter((t) => t.inFlight).length;
+  const activeCount = projects.filter((p) => p.project.status === "active").length;
 
   function applyScenario(id: ScenarioId) {
     const scenario = scenarios.find((s) => s.id === id);
@@ -59,7 +66,8 @@ export function Briefing() {
       return;
     }
     // The AI Workspace sends requests itself (Web API v2 test data); here we only hand over a draft.
-    prepareDraft({ projectId: brand?.id ?? null, scenarioId, text: clean });
+    const projectId = brand?.id ?? null;
+    prepareDraft({ projectId, scenarioId, text: clean, origin: { label: "Обзор", href: "/" } });
     notify({
       tone: "info",
       title: "Черновик открыт в AI Workspace",
@@ -67,7 +75,7 @@ export function Briefing() {
     });
     setText("");
     setScenarioId(null);
-    router.push("/workspace?new=1");
+    router.push(projectId ? `/workspace?new=1&project=${encodeURIComponent(projectId)}` : "/workspace?new=1");
   }
 
   return (
@@ -81,7 +89,7 @@ export function Briefing() {
           {projectsStatus === "ready" ? (
             <>
               {countLabel(activeCount, ["активный бренд", "активных бренда", "активных брендов"])}
-              {reviewCount > 0 && <> · {countLabel(reviewCount, ["результат ждёт", "результата ждут", "результатов ждут"])} проверки</>}
+              {runningCount > 0 && <> · {countLabel(runningCount, ["запрос выполняется", "запроса выполняются", "запросов выполняются"])}</>}
             </>
           ) : (
             " "
@@ -115,14 +123,14 @@ export function Briefing() {
             </label>
             <select
               id={brandSelectId}
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+              value={brand?.id ?? ""}
+              onChange={(e) => selectProject(e.target.value || null)}
               disabled={selectable.length === 0}
             >
-              {selectable.length === 0 && <option value="">Без проекта</option>}
+              {(selectable.length === 0 || !brand) && <option value="">{selectable.length === 0 ? "Без проекта" : "Выберите бренд"}</option>}
               {selectable.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+                <option key={p.project.id} value={p.project.id}>
+                  {p.canSubmit ? p.project.name : `${p.project.name} · только просмотр`}
                 </option>
               ))}
             </select>

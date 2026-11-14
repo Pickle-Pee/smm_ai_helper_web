@@ -1,4 +1,4 @@
-import { CircleCheck, CircleDashed, Clock } from "lucide-react";
+import { CircleCheck, CircleDashed, Clock, MessagesSquare } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import type { ResultStatus, ScenarioId } from "@/lib/types";
 import { resultStatusLabel } from "../model";
@@ -23,6 +23,15 @@ export function ResultKindIcon({ kind, size = "md" }: { kind: ScenarioId; size?:
   return (
     <span className={size === "sm" ? `${styles.kind} ${styles.sm}` : styles.kind} aria-hidden>
       <Icon size={size === "sm" ? 15 : 17} strokeWidth={1.9} />
+    </span>
+  );
+}
+
+/** Same violet tile for a Copilot thread (Web API v2 thread summaries carry no result kind). */
+export function ThreadKindIcon({ size = "md" }: { size?: "sm" | "md" }) {
+  return (
+    <span className={size === "sm" ? `${styles.kind} ${styles.sm}` : styles.kind} aria-hidden>
+      <MessagesSquare size={size === "sm" ? 15 : 17} strokeWidth={1.9} />
     </span>
   );
 }

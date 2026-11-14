@@ -1,10 +1,17 @@
 import type { ID, Message, ResultStatus, ScenarioId, StructuredResult, Thread } from "@/lib/types";
 import type { ResourceStatus } from "@/lib/resource";
 
+/**
+ * A draft handed to the AI Workspace by another screen. It is navigation context only: opening it never sends
+ * anything — the user confirms the request in the Workspace. `projectId` is a Web API v2 project id when it comes
+ * from a project screen; legacy `p-…` ids (Documents demo) are never mapped to another project.
+ */
 export interface DraftIntent {
   projectId: ID | null;
   scenarioId: ScenarioId | null;
   text: string;
+  /** Where the draft was written, to show «Черновик из …» with a way back. */
+  origin?: { label: string; href: string } | null;
 }
 
 export interface WorkspaceState {

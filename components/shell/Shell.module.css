@@ -183,6 +183,11 @@
   height: 16px;
 }
 
+/* The session's selected brand (same project as Dashboard Briefing and the AI Workspace). */
+.projectLink[data-selected] {
+  color: var(--color-nav-text-strong);
+}
+
 .projectName {
   min-width: 0;
   overflow: hidden;

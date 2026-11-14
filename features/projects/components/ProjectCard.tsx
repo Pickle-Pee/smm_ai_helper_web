@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileText, MessagesSquare } from "lucide-react";
+import { MessagesSquare, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Monogram } from "@/components/ui/Monogram";
 import { countLabel, formatRelative } from "@/lib/format";
@@ -14,8 +14,10 @@ export const statusTone: Record<ProjectStatus, "success" | "neutral" | "outline"
 };
 
 export interface ProjectStats {
+  /** Copilot threads of this project (Web API v2 thread summaries). */
   threads: number;
-  documents: number;
+  /** The caller's role, server-computed (`Project.role`), as a readable label. */
+  roleLabel: string;
 }
 
 export function ProjectCard({ project, stats, now }: { project: Project; stats: ProjectStats; now: Date | null }) {
@@ -29,7 +31,7 @@ export function ProjectCard({ project, stats, now }: { project: Project; stats: 
         </Badge>
       </div>
       <h2 className={styles.cardTitle}>
-        <Link href={`/projects/${project.id}`} className={styles.cardLink} title={project.name}>
+        <Link href={`/projects/${encodeURIComponent(project.id)}`} className={styles.cardLink} title={project.name}>
           {project.name}
         </Link>
       </h2>
@@ -50,7 +52,7 @@ export function ProjectCard({ project, stats, now }: { project: Project; stats: 
           <MessagesSquare size={14} aria-hidden /> {countLabel(stats.threads, ["диалог", "диалога", "диалогов"])}
         </span>
         <span className={styles.cardStat}>
-          <FileText size={14} aria-hidden /> {countLabel(stats.documents, ["файл", "файла", "файлов"])}
+          <UserRound size={14} aria-hidden /> {stats.roleLabel}
         </span>
         <span className={styles.cardContext} title="Полнота бизнес-контекста">
           <span className={styles.cardContextTrack} aria-hidden>

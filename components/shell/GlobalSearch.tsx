@@ -5,17 +5,15 @@ import { useRouter } from "next/navigation";
 import { FileText, FolderKanban, MessagesSquare, Search, SearchX, X, type LucideIcon } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { IconButton } from "@/components/ui/Button";
-import { useProjects } from "@/features/projects/store";
-import { useWorkspace } from "@/features/workspace/store";
+import { useProjectContext } from "@/features/projects/context";
 import { useDocuments } from "@/features/documents/store";
-import { filterThreads } from "@/features/workspace/model";
 import { kindLabel } from "@/features/documents/model";
 import { cx } from "@/lib/cx";
 import styles from "./GlobalSearch.module.css";
 
 interface SearchResult {
   id: string;
-  group: "Проекты" | "Диалоги" | "Документы";
+  group: "Проекты" | "Copilot-диалоги" | "Документы (демо-набор)";
   title: string;
   meta: string;
   href: string;
@@ -24,26 +22,33 @@ interface SearchResult {
 
 const LIMIT = 4;
 
-function useSearchResults(query: string): SearchResult[] {
-  const { projects, byId } = useProjects();
-  const { threads } = useWorkspace();
+/**
+ * Projects and Copilot threads come from the unified Web API v2 project context (the ids the Workspace accepts), so
+ * search never links to a phantom thread. Documents are the separate legacy demo dataset and are labelled as such;
+ * their legacy brand names are not shown next to them, so they never look attached to a Web API v2 project.
+ * Thread search matches titles only: message history is loaded per thread when it is opened.
+ */
+export function useSearchResults(query: string): SearchResult[] {
+  const { projects, byId, threads } = useProjectContext();
   const { documents } = useDocuments();
 
   return useMemo(() => {
     const q = query.trim().toLocaleLowerCase("ru");
     if (!q) return [];
     const projectHits: SearchResult[] = projects
+      .map((p) => p.project)
       .filter((p) => `${p.name} ${p.industry}`.toLocaleLowerCase("ru").includes(q))
       .slice(0, LIMIT)
       .map((p) => ({ id: `p:${p.id}`, group: "Проекты", title: p.name, meta: p.industry, href: `/projects/${p.id}`, icon: FolderKanban }));
-    const threadHits: SearchResult[] = filterThreads(threads, q)
+    const threadHits: SearchResult[] = threads
+      .filter((t) => t.title.toLocaleLowerCase("ru").includes(q))
       .slice(0, LIMIT)
       .map((t) => ({
         id: `t:${t.id}`,
-        group: "Диалоги",
+        group: "Copilot-диалоги",
         title: t.title,
-        meta: (t.projectId && byId.get(t.projectId)?.name) || "Без проекта",
-        href: `/workspace?thread=${t.id}`,
+        meta: byId.get(t.projectId)?.project.name ?? "Проект недоступен",
+        href: `/workspace?thread=${encodeURIComponent(t.id)}`,
         icon: MessagesSquare,
       }));
     const documentHits: SearchResult[] = documents
@@ -51,9 +56,9 @@ function useSearchResults(query: string): SearchResult[] {
       .slice(0, LIMIT)
       .map((d) => ({
         id: `d:${d.id}`,
-        group: "Документы",
+        group: "Документы (демо-набор)",
         title: d.name,
-        meta: `${kindLabel[d.kind]}${d.projectId && byId.get(d.projectId) ? ` · ${byId.get(d.projectId)?.name}` : ""}`,
+        meta: `${kindLabel[d.kind]} · не связан с проектами`,
         href: `/documents?doc=${d.id}`,
         icon: FileText,
       }));

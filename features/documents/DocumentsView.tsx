@@ -13,7 +13,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
 import { Tabs, TabPanel, useTabsId } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
-import { useProjects } from "@/features/projects/store";
+import { useLegacyDemoProjects } from "@/features/projects/store";
 import { useWorkspace } from "@/features/workspace/store";
 import { scenarioById, scenarioPrompt } from "@/features/workspace/scenarios";
 import { formatDate, formatFileSize, formatRelative } from "@/lib/format";
@@ -39,13 +39,18 @@ import styles from "./Documents.module.css";
 type View = "grid" | "list";
 const kindTabs: KindFilter[] = ["all", "favorites", "sheet", "doc", "pdf", "slides", "card", "file"];
 
+/**
+ * Documents stay on the legacy demo dataset (F3): files are tagged with legacy demo brands (`p-…`), which are NOT
+ * Web API v2 projects. The UI says so, and drafts handed to the AI Workspace keep the legacy id so the Workspace
+ * explains the mismatch instead of picking another project. Real documents come after Storage/Auth Foundation.
+ */
 export function DocumentsView() {
   const router = useRouter();
   const params = useSearchParams();
   const now = useNow();
   const { notify } = useToast();
   const { documents, templates, status, retry, toggleFavorite } = useDocuments();
-  const { projects, byId } = useProjects();
+  const { projects, byId } = useLegacyDemoProjects();
   const { prepareDraft } = useWorkspace();
   const tabsId = useTabsId();
   const [filter, setFilter] = useState<DocumentFilter>(defaultDocumentFilter);
@@ -71,6 +76,7 @@ export function DocumentsView() {
       projectId: doc.projectId,
       scenarioId: null,
       text: `Помоги доработать документ «${doc.name}»: `,
+      origin: { label: "Документы", href: "/documents" },
     });
     router.push("/workspace?new=1");
   }
@@ -83,6 +89,7 @@ export function DocumentsView() {
       text: scenario
         ? `${scenarioPrompt(scenario, filter.projectId !== "all" ? byId.get(filter.projectId)?.name : null)} Оформи по шаблону «${template.name}».`
         : `Подготовь материал по шаблону «${template.name}».`,
+      origin: { label: "Документы", href: "/documents" },
     });
     router.push("/workspace?new=1");
   }
@@ -96,7 +103,7 @@ export function DocumentsView() {
     <Page>
       <PageHeader
         title="Документы"
-        description="Таблицы, стратегии, презентации и карточки ваших брендов. Генерация и загрузка файлов появятся после подключения хранилища."
+        description="Демо-набор файлов со своими брендами: он не связан с проектами Web API v2, которые видны на Обзоре, в Проектах и AI Workspace. Генерация, загрузка и привязка файлов к проектам появятся после подключения хранилища."
         actions={
           <div className={styles.headerActions}>
             <Button icon={Upload} disabled aria-describedby="upload-soon">
@@ -135,12 +142,12 @@ export function DocumentsView() {
             wrapperClassName={styles.search}
           />
           <Select
-            aria-label="Фильтр по проекту"
+            aria-label="Фильтр по бренду демо-набора"
             value={filter.projectId}
             onChange={(e) => setFilter((f) => ({ ...f, projectId: e.target.value }))}
             wrapperClassName={styles.select}
           >
-            <option value="all">Все проекты</option>
+            <option value="all">Все бренды демо-набора</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -271,7 +278,7 @@ export function DocumentsView() {
                 <tr>
                   <th scope="col">Название</th>
                   <th scope="col">Тип</th>
-                  <th scope="col">Проект</th>
+                  <th scope="col">Бренд (демо)</th>
                   <th scope="col">Источник</th>
                   <th scope="col">Размер</th>
                   <th scope="col">Изменён</th>
@@ -378,7 +385,7 @@ function PreviewBody({ doc, projectName, onFavorite }: { doc: DocumentItem; proj
       <p className={styles.previewSummary}>{doc.summary}</p>
       <dl className={styles.previewMeta}>
         <div>
-          <dt>Проект</dt>
+          <dt>Бренд (демо-набор)</dt>
           <dd>{projectName ?? "Общие"}</dd>
         </div>
         <div>

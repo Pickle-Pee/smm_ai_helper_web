@@ -6,8 +6,6 @@ import { Meter } from "@/components/ui/Card";
 import { Monogram } from "@/components/ui/Monogram";
 import { EmptyState } from "@/components/ui/States";
 import { contextCompleteness } from "@/features/projects/model";
-import { useDocuments } from "@/features/documents/store";
-import { FileIcon } from "@/features/documents/components/FileVisual";
 import type { Project, ScenarioId } from "@/lib/types";
 import { scenarios } from "../scenarios";
 import styles from "../Workspace.module.css";
@@ -20,12 +18,10 @@ export function ContextPanel({
 }: {
   project: Project | null;
   onUseScenario: (id: ScenarioId) => void;
-  /** Link to the project card (only when the project exists in the Projects section's dataset). */
+  /** Link to the project page (same Web API v2 project id as the Workspace since F3). */
   projectLink?: boolean;
   emptyDescription?: string;
 }) {
-  const { documents } = useDocuments();
-
   return (
     <div className={styles.context}>
       <h2 className={styles.panelTitle}>Контекст бренда</h2>
@@ -38,7 +34,7 @@ export function ContextPanel({
           description={emptyDescription}
         />
       ) : (
-        <BrandContext project={project} projectLink={projectLink} docs={documents.filter((d) => d.projectId === project.id).slice(0, 3)} />
+        <BrandContext project={project} projectLink={projectLink} />
       )}
 
       <section className={styles.contextSection} aria-labelledby="ctx-scenarios">
@@ -68,7 +64,11 @@ export function ContextPanel({
   );
 }
 
-function BrandContext({ project, docs, projectLink }: { project: Project; docs: ReturnType<typeof useDocuments>["documents"]; projectLink: boolean }) {
+/**
+ * Brand context of a Web API v2 project. Documents are not listed here: they belong to a separate legacy demo
+ * dataset that is not linked to Web API v2 projects (F3).
+ */
+function BrandContext({ project, projectLink }: { project: Project; projectLink: boolean }) {
   const { percent, missing } = contextCompleteness(project);
   const fields: { label: string; value: string }[] = [
     { label: "Продукт", value: project.description },
@@ -138,24 +138,6 @@ function BrandContext({ project, docs, projectLink }: { project: Project; docs: 
           </dd>
         </div>
       </dl>
-
-      {docs.length > 0 && (
-        <section className={styles.contextSection} aria-labelledby="ctx-docs">
-          <h3 className={styles.contextLabel} id="ctx-docs">
-            Материалы бренда
-          </h3>
-          <ul className={styles.contextDocs}>
-            {docs.map((d) => (
-              <li key={d.id}>
-                <Link href={`/documents?doc=${d.id}`} className={styles.contextDoc}>
-                  <FileIcon kind={d.kind} size="sm" />
-                  <span title={d.name}>{d.name}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </>
   );
 }
