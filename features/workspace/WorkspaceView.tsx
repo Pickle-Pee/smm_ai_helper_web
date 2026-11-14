@@ -12,7 +12,8 @@ import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui
 import { useToast } from "@/components/ui/Toast";
 import { LogoMark } from "@/components/brand/Logo";
 import { useAccount } from "@/features/account/store";
-import { useProjects } from "@/features/projects/store";
+import { useLegacyDemoProjects } from "@/features/projects/store";
+import { threadAttention, useProjectContext } from "@/features/projects/context";
 import type { SubmitScenario } from "@/lib/api/v2/fixture-client";
 import type { ThreadMessageView } from "@/lib/api/v2/presenters";
 import { formatTime, quoted } from "@/lib/format";
@@ -39,13 +40,18 @@ const PREVIEW_NOTE =
  * AI Workspace (F2): projects, threads, history and AI requests come from Web API v2 through the
  * `WorkspaceV2Controller` (fixture transport only). The legacy workspace store is used here ONLY to receive
  * drafts prepared on other screens and to recognise links to its demo threads.
+ *
+ * F3: the project of a new conversation comes, in this order, from a handed-over draft, the `?project=` deep link,
+ * the session's selected brand (`useProjectContext`), else the first active project. A draft or link whose project
+ * does not resolve leaves the selector EMPTY with a notice — another project is never chosen for it.
  */
 export function WorkspaceView() {
   const router = useRouter();
   const params = useSearchParams();
   const { notify } = useToast();
   const legacy = useWorkspace();
-  const { byId: legacyProjects } = useProjects();
+  const { byId: legacyProjects } = useLegacyDemoProjects();
+  const { selectedProjectId, selectedProject, selectProject } = useProjectContext();
   const { demoView, setDemoView } = useAccount();
   const { controller, state } = useWorkspaceV2();
   const composerRef = useRef<ComposerHandle>(null);
@@ -55,6 +61,14 @@ export function WorkspaceView() {
   const [draftScenario, setDraftScenario] = useState<ScenarioId | null>(null);
   const [fixtureAnswer, setFixtureAnswer] = useState<SubmitScenario>("direct_result");
   const [projectNotice, setProjectNotice] = useState<string | null>(null);
+  /**
+   * The route (see `routeKey`) whose project context was last applied by a draft, a deep link or the default. The
+   * Workspace page stays mounted across search-param-only navigation (links, Back/Forward), so the project is
+   * re-decided whenever the route key changes — never only once per mount — while a manual pick within the same
+   * route is kept.
+   */
+  const [decidedRouteKey, setDecidedRouteKey] = useState<string | null>(null);
+  const [draftOrigin, setDraftOrigin] = useState<{ label: string; href: string } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [startNewOpen, setStartNewOpen] = useState(false);
@@ -67,6 +81,9 @@ export function WorkspaceView() {
 
   const requestedId = params.get("thread");
   const isNew = params.get("new") === "1";
+  const urlProjectId = isNew ? params.get("project") : null;
+  // Identity of the navigation context: a new conversation (with its explicit project, if any) or a thread link.
+  const routeKey = isNew ? `new:${urlProjectId ?? ""}` : `thread:${requestedId ?? ""}`;
   const threadId: string | null = isNew ? null : (requestedId ?? threads[0]?.id ?? null);
   const summary = threadId ? (state.threads.find((t) => t.id === threadId) ?? null) : null;
   const detail: ThreadDetailView | null = threadId ? (state.details[threadId] ?? null) : null;
@@ -81,53 +98,88 @@ export function WorkspaceView() {
 
   // Draft prepared by another screen (dashboard, documents, project page). Those screens use the legacy demo
   // dataset: a project id that the Web API v2 test data does not have is NOT mapped to another project.
+  // Nothing here sends: the draft only fills the composer; the user confirms the request.
   useEffect(() => {
     if (!legacy.pendingDraft || !ready || !controller) return;
-    const { text, projectId, scenarioId } = legacy.pendingDraft;
+    const { text, projectId, scenarioId, origin } = legacy.pendingDraft;
     setDraft(text);
     setDraftScenario(scenarioId);
     setFixtureAnswer(defaultFixtureAnswer(scenarioId));
+    setDraftOrigin(origin ?? null);
+    // The draft outranks the route's own project for the route it arrived on.
+    setDecidedRouteKey(routeKey);
     if (projectId && controller.projectById(projectId)) {
       setDraftProjectId(projectId);
       setProjectNotice(null);
+      selectProject(projectId);
     } else {
       setDraftProjectId(null);
-      const name = projectId ? legacyProjects.get(projectId)?.name : null;
-      setProjectNotice(
-        projectId
-          ? `Проект ${name ? quoted(name) : ""} из демо-набора отсутствует в тестовых данных Web API v2. Выберите проект вручную — запрос не будет отправлен в другой проект автоматически.`
-          : null,
-      );
+      setProjectNotice(projectId ? unresolvedProjectNotice(projectId, legacyProjects.get(projectId)?.name ?? null) : null);
     }
     legacy.consumeDraft();
     requestAnimationFrame(() => composerRef.current?.focus());
-  }, [legacy, legacyProjects, ready, controller]);
+  }, [legacy, legacyProjects, ready, controller, selectProject, routeKey]);
 
-  // Default project for a new conversation: first active fixture project (unless a draft asked for another).
+  // A thread route needs no project decision; leaving it means the next new-conversation route is decided afresh
+  // (e.g. `?new=1&project=A` → thread → Back to `?new=1&project=A` applies A again).
   useEffect(() => {
-    if (isNew && !draftProjectId && !projectNotice && !legacy.pendingDraft) {
-      const first = state.projects.find((p) => p.project.status === "active");
-      if (first) setDraftProjectId(first.project.id);
+    if (!isNew) setDecidedRouteKey(routeKey);
+  }, [isNew, routeKey]);
+
+  // Project of a new conversation, re-decided on every route change (also without a remount):
+  // `?new=1&project=<id>` → exactly that project, or an EMPTY selector with a notice (never a fallback);
+  // `?new=1` → the session's selected brand (a stale one only gets a notice), else the first active project.
+  // A pending draft is applied first (effect above). Nothing here sends anything.
+  useEffect(() => {
+    if (!isNew || !ready || !controller || legacy.pendingDraft || decidedRouteKey === routeKey) return;
+    setDecidedRouteKey(routeKey);
+    // A draft's origin belonged to the route it arrived on.
+    setDraftOrigin(null);
+    if (urlProjectId) {
+      if (controller.projectById(urlProjectId)) {
+        setDraftProjectId(urlProjectId);
+        setProjectNotice(null);
+        selectProject(urlProjectId);
+      } else {
+        setDraftProjectId(null);
+        setProjectNotice(unresolvedProjectNotice(urlProjectId, legacyProjects.get(urlProjectId)?.name ?? null));
+      }
+      return;
     }
-  }, [isNew, draftProjectId, projectNotice, legacy.pendingDraft, state.projects]);
+    if (selectedProjectId) {
+      if (selectedProject) {
+        setDraftProjectId(selectedProject.project.id);
+        setProjectNotice(null);
+      } else {
+        setDraftProjectId(null);
+        setProjectNotice(unresolvedProjectNotice(selectedProjectId, legacyProjects.get(selectedProjectId)?.name ?? null));
+      }
+      return;
+    }
+    const first = state.projects.find((p) => p.project.status === "active");
+    setDraftProjectId(first?.project.id ?? null);
+    setProjectNotice(null);
+  }, [isNew, ready, controller, legacy.pendingDraft, decidedRouteKey, routeKey, urlProjectId, selectedProjectId, selectedProject, legacyProjects, state.projects, selectProject]);
 
   const projectId = summary ? summary.projectId : draftProjectId;
+
+  // An open thread makes its project the session's brand (Dashboard and Projects then show the same one).
+  const summaryProjectId = summary?.projectId ?? null;
+  useEffect(() => {
+    if (summaryProjectId) selectProject(summaryProjectId);
+  }, [summaryProjectId, selectProject]);
   const projectView = controller?.projectById(projectId) ?? null;
   const project = projectView?.project ?? null;
   const notFound = viewStatus === "ready" && !isNew && !!threadId && detail?.status === "not_found";
   const listItems: ThreadListItem[] = useMemo(
     () =>
-      threads.map((t) => {
-        const request = state.details[t.id]?.request;
-        const unresolved = request?.phase === "unknown" || request?.execution?.status === "ambiguous";
-        return {
-          id: t.id,
-          title: t.title,
-          projectId: t.projectId,
-          updatedAt: t.updatedAt,
-          requestState: unresolved ? ("unresolved" as const) : t.inFlight ? ("running" as const) : null,
-        };
-      }),
+      threads.map((t) => ({
+        id: t.id,
+        title: t.title,
+        projectId: t.projectId,
+        updatedAt: t.updatedAt,
+        requestState: threadAttention(t, state.details[t.id]),
+      })),
     [threads, state.details],
   );
   const listProjects = useMemo(() => state.projects.map((p) => ({ id: p.project.id, name: p.project.name, color: p.project.color })), [state.projects]);
@@ -141,6 +193,15 @@ export function WorkspaceView() {
     setDraft("");
     setDraftScenario(null);
     setProjectNotice(null);
+    setDraftOrigin(null);
+    if (summary) {
+      // A new conversation from an open thread stays in that thread's project.
+      setDraftProjectId(summary.projectId);
+      setDecidedRouteKey("new:");
+    } else {
+      // Re-decide for the target route (also when it is the current one).
+      setDecidedRouteKey(null);
+    }
     setHistoryOpen(false);
     router.push("/workspace?new=1", { scroll: false });
     requestAnimationFrame(() => composerRef.current?.focus());
@@ -169,6 +230,7 @@ export function WorkspaceView() {
     if ("threadId" in result) {
       setDraft("");
       setDraftScenario(null);
+      setDraftOrigin(null);
       router.replace(`/workspace?thread=${result.threadId}`, { scroll: false });
     } else {
       notify({ tone: "info", title: "Запрос не отправлен", description: result.error.text });
@@ -206,7 +268,10 @@ export function WorkspaceView() {
                 value={projectId ?? ""}
                 onChange={(e) => {
                   setDraftProjectId(e.target.value || null);
-                  if (e.target.value) setProjectNotice(null);
+                  if (e.target.value) {
+                    setProjectNotice(null);
+                    selectProject(e.target.value);
+                  }
                 }}
                 wrapperClassName={styles.brandSelect}
                 disabled={viewStatus !== "ready" || !!summary}
@@ -245,10 +310,10 @@ export function WorkspaceView() {
           {notFound && (
             <EmptyState
               icon={SearchX}
-              title={legacyThread ? "Этот диалог из демо-набора главной страницы" : "Диалог не найден"}
+              title={legacyThread ? "Этот диалог из старого демо-набора" : "Диалог не найден"}
               description={
                 legacyThread
-                  ? `«${legacyThread.title}» есть только в демонстрационных данных Главной и Проектов. AI Workspace работает с тестовыми данными Web API v2, где такого диалога нет.`
+                  ? `«${legacyThread.title}» есть только в прежнем демо-наборе (старая ссылка). Обзор, Проекты и AI Workspace теперь работают с тестовыми данными Web API v2, где такого диалога нет.`
                   : "В тестовых данных Web API v2 нет такого диалога или нет доступа к нему. Тестовые данные сбрасываются при перезагрузке страницы."
               }
               action={
@@ -273,6 +338,14 @@ export function WorkspaceView() {
 
         {viewStatus === "ready" && !notFound && (
           <>
+            {draftOrigin && !summary && (
+              <p className={cx(stateStyles.notice, stateStyles.status)} role="status">
+                <span className={stateStyles.statusText}>
+                  <Info size={14} aria-hidden /> Черновик из раздела <Link href={draftOrigin.href}>«{draftOrigin.label}»</Link>. Ничего не
+                  отправлено: проверьте проект и текст, затем нажмите «Отправить».
+                </span>
+              </p>
+            )}
             {projectNotice && !summary && (
               <p className={cx(stateStyles.notice, stateStyles.status, stateStyles.statusWarning)} role="status">
                 <span className={stateStyles.statusText}>
@@ -338,14 +411,14 @@ export function WorkspaceView() {
       </section>
 
       <aside className={styles.contextPane} aria-label="Контекст бренда">
-        <ContextPanel project={project} onUseScenario={applyScenario} projectLink={false} emptyDescription="Выберите проект из тестовых данных в шапке диалога." />
+        <ContextPanel project={project} onUseScenario={applyScenario} emptyDescription="Выберите проект из тестовых данных в шапке диалога." />
       </aside>
 
       <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} title="История диалогов" variant="sheet" side="left" size="sm">
         {threadList(() => setHistoryOpen(false))}
       </Dialog>
       <Dialog open={contextOpen} onClose={() => setContextOpen(false)} title="Контекст бренда" variant="sheet">
-        <ContextPanel project={project} onUseScenario={applyScenario} projectLink={false} emptyDescription="Выберите проект из тестовых данных в шапке диалога." />
+        <ContextPanel project={project} onUseScenario={applyScenario} emptyDescription="Выберите проект из тестовых данных в шапке диалога." />
       </Dialog>
       {summary && controller && (
         <StartNewRequestDialog
@@ -366,6 +439,13 @@ export function WorkspaceView() {
       )}
     </div>
   );
+}
+
+/** Why a handed-over project id is not used. The selector stays empty: no other project is chosen. */
+function unresolvedProjectNotice(projectId: string, legacyName: string | null): string {
+  const tail = "Выберите проект вручную — запрос не будет отправлен в другой проект автоматически.";
+  if (legacyName) return `Проект ${quoted(legacyName)} из демо-набора документов не связан с проектами тестовых данных Web API v2. ${tail}`;
+  return `Проект из ссылки или черновика не найден в тестовых данных Web API v2 или у вас нет к нему доступа. ${tail}`;
 }
 
 function lastUserText(detail: ThreadDetailView | null): string {

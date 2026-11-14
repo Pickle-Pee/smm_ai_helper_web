@@ -2,16 +2,11 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { ApiProvider } from "@/lib/api/provider";
 import { FIXTURE_IDS } from "@/lib/api/v2/fixtures";
 import { FixtureWebApiV2Client, type FixtureClientOptions } from "@/lib/api/v2/fixture-client";
 import { MemoryPendingRequestStore, type Sleep } from "@/lib/api/v2/requests";
-import { AccountProvider } from "@/features/account/store";
-import { ProjectsProvider } from "@/features/projects/store";
-import { DocumentsProvider } from "@/features/documents/store";
-import { ToastProvider } from "@/components/ui/Toast";
-import { WorkspaceProvider, useWorkspace } from "./store";
-import { WorkspaceV2Provider } from "./v2/provider";
+import { AppTestProviders } from "@/features/testing/AppTestProviders";
+import { useWorkspace } from "./store";
 import { WorkspaceV2Controller } from "./v2/controller";
 import { FIXTURE_LABEL } from "./v2/simulation";
 import { WorkspaceView } from "./WorkspaceView";
@@ -99,19 +94,9 @@ function renderWorkspace(url: string, options: FixtureClientOptions = {}, extra:
     })(),
   });
   const wrap = (children: ReactNode) => (
-    <ApiProvider webApiV2={api}>
-      <AccountProvider>
-        <ProjectsProvider>
-          <WorkspaceProvider>
-            <WorkspaceV2Provider controller={controller}>
-              <DocumentsProvider>
-                <ToastProvider>{children}</ToastProvider>
-              </DocumentsProvider>
-            </WorkspaceV2Provider>
-          </WorkspaceProvider>
-        </ProjectsProvider>
-      </AccountProvider>
-    </ApiProvider>
+    <AppTestProviders api={api} controller={controller}>
+      {children}
+    </AppTestProviders>
   );
   const view = render(
     wrap(
@@ -331,14 +316,14 @@ describe("AI Workspace on Web API v2 fixtures", () => {
 
   it("links to legacy demo threads are explained, not silently redirected", async () => {
     renderWorkspace("/workspace?thread=t-lf-strategy");
-    expect(await screen.findByRole("heading", { name: "Этот диалог из демо-набора главной страницы" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Этот диалог из старого демо-набора" })).toBeTruthy();
   });
 
   it("a draft for a legacy project id is not sent to another project", async () => {
     const { submit } = renderWorkspace("/workspace?new=1", {}, { draft: { projectId: "p-little-feet", text: "Контент-план на неделю" } });
     await ready();
     fireEvent.click(await screen.findByRole("button", { name: "prepare-draft" }));
-    await screen.findByText(/из демо-набора отсутствует в тестовых данных Web API v2/);
+    await screen.findByText(/из демо-набора документов не связан с проектами тестовых данных Web API v2/);
     expect(composer().value).toBe("Контент-план на неделю");
     expect(projectSelect().value).toBe("");
     expect((sendButton() as HTMLButtonElement).disabled).toBe(true);

@@ -9,7 +9,7 @@ import { Field, Input, Select } from "@/components/ui/Form";
 import { Page, PageHeader } from "@/components/ui/PageHeader";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useToast } from "@/components/ui/Toast";
-import { useProjects } from "@/features/projects/store";
+import { useLegacyDemoProjects } from "@/features/projects/store";
 import { useWorkspace } from "@/features/workspace/store";
 import { useDocuments } from "@/features/documents/store";
 import { ContractDemoPanel } from "@/features/workspace/components/ContractDemoPanel";
@@ -269,7 +269,7 @@ function AppearanceSection() {
 
 function DemoSection() {
   const { demoView, setDemoView } = useAccount();
-  const projects = useProjects();
+  const projects = useLegacyDemoProjects();
   const workspace = useWorkspace();
   const documents = useDocuments();
   const { notify } = useToast();
@@ -277,7 +277,10 @@ function DemoSection() {
   async function reset() {
     setDemoView("live");
     await Promise.all([projects.reload(), workspace.reload(), documents.reload()]);
-    notify({ title: "Демо-данные восстановлены", description: "Проекты, диалоги и документы вернулись к исходному набору." });
+    notify({
+      title: "Демо-данные восстановлены",
+      description: "Демо-набор документов вернулся к исходному. Проекты и Copilot-диалоги (тестовые данные Web API v2) сбрасываются перезагрузкой страницы.",
+    });
   }
 
   return (
@@ -308,7 +311,10 @@ function DemoSection() {
       <div className={styles.row}>
         <div>
           <p className={styles.rowTitle}>Сбросить демо-данные</p>
-          <p className={styles.rowHint}>Удаляет созданные проекты, диалоги и отметки и возвращает исходный набор.</p>
+          <p className={styles.rowHint}>
+            Возвращает исходный демо-набор документов и отметки. Проекты и Copilot-диалоги — тестовые данные Web API v2 в этой вкладке: они
+            сбрасываются при перезагрузке страницы.
+          </p>
         </div>
         <Button icon={RotateCcw} onClick={reset}>
           Сбросить

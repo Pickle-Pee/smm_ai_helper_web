@@ -2,34 +2,40 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowRight, Check, FileText, FolderPlus, Inbox, ListChecks, MessagesSquare } from "lucide-react";
-import { ButtonLink, Button } from "@/components/ui/Button";
+import { ArrowRight, FileText, FlaskConical, FolderSearch, Inbox, MessagesSquare, UserRound } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
+import { ButtonLink } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Monogram, BrandDot } from "@/components/ui/Monogram";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
 import { Page } from "@/components/ui/PageHeader";
-import { useToast } from "@/components/ui/Toast";
-import { useProjects } from "@/features/projects/store";
+import { useProjectContext } from "@/features/projects/context";
 import { contextCompleteness } from "@/features/projects/model";
-import { useWorkspace } from "@/features/workspace/store";
-import { countThreadsByProject, selectResults } from "@/features/workspace/model";
-import { ResultKindIcon, ResultStatusBadge, scenarioTitle } from "@/features/workspace/components/ResultBadges";
+import { REQUEST_STATE_TEXT } from "@/features/workspace/components/ThreadList";
+import { ThreadKindIcon } from "@/features/workspace/components/ResultBadges";
 import { useDocuments } from "@/features/documents/store";
 import { FileIcon } from "@/features/documents/components/FileVisual";
 import { kindLabel } from "@/features/documents/model";
+import { PROJECT_ROLE_LABEL } from "@/lib/api/v2/presenters";
 import { countLabel, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { Briefing } from "./Briefing";
 import styles from "./Dashboard.module.css";
 
+/**
+ * Dashboard (F3). Brands and Copilot threads come from the unified Web API v2 project context — the same project
+ * and thread ids the AI Workspace uses. Documents are the separate legacy demo dataset and are labelled as such.
+ * Nothing here shows metrics the contract does not provide (no result approval queue, no document counts per
+ * project).
+ */
 export function DashboardView() {
   return (
     <Page wide>
       <Briefing />
       <div className={styles.grid}>
         <ProjectsPanel />
-        <ResultsPanel />
+        <ThreadsPanel />
         <DocumentsPanel />
       </div>
     </Page>
@@ -38,13 +44,10 @@ export function DashboardView() {
 
 function ProjectsPanel() {
   const now = useNow();
-  const { projects, status, retry } = useProjects();
-  const { threads } = useWorkspace();
-  const { documents } = useDocuments();
-  const threadCounts = useMemo(() => countThreadsByProject(threads), [threads]);
+  const { projects, status, retry, threadsFor } = useProjectContext();
   const visible = projects
-    .filter((p) => p.status !== "archived")
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .filter((p) => p.project.status !== "archived")
+    .sort((a, b) => b.project.updatedAt.localeCompare(a.project.updatedAt))
     .slice(0, 3);
 
   return (
@@ -52,7 +55,7 @@ function ProjectsPanel() {
       <CardHeader
         id="dash-projects"
         title="Бренды в работе"
-        description="Контекст брендов, который AI учитывает в ответах"
+        description="Контекст брендов, который Copilot учитывает в запросах · тестовые данные Web API v2"
         action={
           <ButtonLink href="/projects" variant="ghost" size="sm" iconRight={ArrowRight}>
             Все проекты
@@ -75,37 +78,31 @@ function ProjectsPanel() {
       {status === "ready" && visible.length === 0 && (
         <EmptyState
           compact
-          icon={FolderPlus}
-          title="Добавьте первый бренд"
-          description="Опишите бизнес, аудиторию и конкурентов — AI будет использовать этот контекст в каждом запросе."
-          action={
-            <ButtonLink href="/projects?create=1" variant="primary" size="sm">
-              Создать проект
-            </ButtonLink>
-          }
+          icon={FolderSearch}
+          title="Проектов пока нет"
+          description="В тестовых данных Web API v2 нет доступных вам проектов. Создание проектов появится вместе с подключением Web API."
         />
       )}
       {status === "ready" && visible.length > 0 && (
         <ul className={styles.projectGrid}>
-          {visible.map((p) => {
+          {visible.map(({ project: p, role }) => {
             const completeness = contextCompleteness(p).percent;
-            const docs = documents.filter((d) => d.projectId === p.id).length;
             return (
               <li key={p.id} className={styles.projectTile}>
                 <div className={styles.projectTileTop}>
                   <Monogram name={p.name} color={p.color} />
                   <span className={styles.projectUpdated}>{now ? formatRelative(p.updatedAt, now) : ""}</span>
                 </div>
-                <Link href={`/projects/${p.id}`} className={styles.projectTileLink}>
+                <Link href={`/projects/${encodeURIComponent(p.id)}`} className={styles.projectTileLink}>
                   {p.name}
                 </Link>
                 <p className={styles.projectIndustry}>{p.industry}</p>
                 <div className={styles.projectStats}>
                   <span>
-                    <MessagesSquare size={14} aria-hidden /> {countLabel(threadCounts.get(p.id) ?? 0, ["диалог", "диалога", "диалогов"])}
+                    <MessagesSquare size={14} aria-hidden /> {countLabel(threadsFor(p.id).length, ["диалог", "диалога", "диалогов"])}
                   </span>
                   <span>
-                    <FileText size={14} aria-hidden /> {countLabel(docs, ["файл", "файла", "файлов"])}
+                    <UserRound size={14} aria-hidden /> {PROJECT_ROLE_LABEL[role]}
                   </span>
                 </div>
                 <div className={styles.miniMeter}>
@@ -124,39 +121,47 @@ function ProjectsPanel() {
   );
 }
 
-type ResultsFilter = "review" | "all";
+type ThreadsFilter = "brand" | "all";
 
-function ResultsPanel() {
+/**
+ * Recent Copilot threads (Web API v2 thread summaries). Results themselves are opened in the thread: the contract
+ * has no cross-thread result feed or review status, so none is invented here.
+ */
+function ThreadsPanel() {
   const now = useNow();
-  const { notify } = useToast();
-  const { threads, status, retry, setResultStatus } = useWorkspace();
-  const { byId } = useProjects();
-  const [filter, setFilter] = useState<ResultsFilter>("review");
-  const results = useMemo(() => selectResults(threads), [threads]);
-  const reviewCount = results.filter((r) => r.result.status === "review").length;
-  const visible = (filter === "review" ? results.filter((r) => r.result.status === "review") : results).slice(0, 5);
+  const { threads, status, retry, byId, selectedProject, attentionOf } = useProjectContext();
+  const [filter, setFilter] = useState<ThreadsFilter>("brand");
+  const brandThreads = useMemo(() => (selectedProject ? threads.filter((t) => t.projectId === selectedProject.project.id) : []), [threads, selectedProject]);
+  const effective: ThreadsFilter = selectedProject ? filter : "all";
+  const visible = (effective === "brand" ? brandThreads : threads).slice(0, 5);
 
   return (
     <Card className={styles.results} aria-labelledby="dash-results">
       <CardHeader
         id="dash-results"
-        title="AI-результаты"
-        description="Стратегии, анализы и тексты из ваших диалогов"
+        title="Copilot-диалоги"
+        description={
+          effective === "brand" && selectedProject
+            ? `Последние запросы бренда ${selectedProject.project.name}. Результаты открываются в диалоге`
+            : "Последние запросы по всем брендам. Результаты открываются в диалоге"
+        }
         action={
-          <SegmentedControl
-            legend="Фильтр результатов"
-            size="sm"
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { value: "review", label: "На проверке", count: reviewCount },
-              { value: "all", label: "Все", count: results.length },
-            ]}
-          />
+          selectedProject ? (
+            <SegmentedControl
+              legend="Какие диалоги показать"
+              size="sm"
+              value={effective}
+              onChange={setFilter}
+              options={[
+                { value: "brand", label: "Бренд", ariaLabel: `Бренд ${selectedProject.project.name}`, count: brandThreads.length },
+                { value: "all", label: "Все", count: threads.length },
+              ]}
+            />
+          ) : undefined
         }
       />
       {status === "loading" && (
-        <LoadingRegion label="Загрузка результатов">
+        <LoadingRegion label="Загрузка диалогов">
           {[0, 1, 2].map((i) => (
             <div key={i} className={styles.resultRow}>
               <Skeleton width={36} height={36} radius={10} />
@@ -173,15 +178,11 @@ function ResultsPanel() {
         <EmptyState
           compact
           tone="ai"
-          icon={filter === "review" ? ListChecks : Inbox}
-          title={filter === "review" ? "Всё проверено" : "Результатов пока нет"}
-          description={
-            filter === "review"
-              ? "Новые стратегии и анализы появятся здесь, когда AI подготовит их в диалогах."
-              : "Запустите сценарий в AI Workspace — структурированные результаты будут собираться здесь."
-          }
+          icon={Inbox}
+          title="Диалогов пока нет"
+          description="Опишите задачу выше или откройте AI Workspace — Copilot-диалоги этого бренда появятся здесь."
           action={
-            <ButtonLink href="/workspace?new=1" size="sm">
+            <ButtonLink href={selectedProject ? `/workspace?new=1&project=${encodeURIComponent(selectedProject.project.id)}` : "/workspace?new=1"} size="sm">
               Открыть AI Workspace
             </ButtonLink>
           }
@@ -189,14 +190,15 @@ function ResultsPanel() {
       )}
       {status === "ready" && visible.length > 0 && (
         <ul className={styles.resultList}>
-          {visible.map((entry) => {
-            const project = entry.projectId ? byId.get(entry.projectId) : undefined;
+          {visible.map((t) => {
+            const project = byId.get(t.projectId)?.project;
+            const attention = attentionOf(t);
             return (
-              <li key={entry.messageId} className={styles.resultRow}>
-                <ResultKindIcon kind={entry.result.kind} />
+              <li key={t.id} className={styles.resultRow}>
+                <ThreadKindIcon />
                 <div className={styles.resultText}>
-                  <Link href={`/workspace?thread=${entry.threadId}`} className={styles.resultTitle}>
-                    {entry.result.title}
+                  <Link href={`/workspace?thread=${encodeURIComponent(t.id)}`} className={styles.resultTitle}>
+                    {t.title}
                   </Link>
                   <p className={styles.resultMeta}>
                     {project && (
@@ -204,26 +206,17 @@ function ResultsPanel() {
                         <BrandDot color={project.color} /> {project.name}
                       </span>
                     )}
-                    <span>{scenarioTitle(entry.result.kind)}</span>
-                    {now && <span>{formatRelative(entry.createdAt, now)}</span>}
+                    <span>Copilot</span>
+                    {now && <span>{formatRelative(t.updatedAt, now)}</span>}
                   </p>
                 </div>
-                <div className={styles.resultActions}>
-                  <ResultStatusBadge status={entry.result.status} size="sm" />
-                  {entry.result.status === "review" && (
-                    <Button
-                      size="sm"
-                      icon={Check}
-                      onClick={() => {
-                        setResultStatus(entry.threadId, entry.messageId, "approved");
-                        notify({ title: "Результат отмечен как проверенный", description: "Изменение сохранено только в этой вкладке." });
-                      }}
-                      aria-label={`Отметить проверенным: ${entry.result.title}`}
-                    >
-                      Проверено
-                    </Button>
-                  )}
-                </div>
+                {attention && (
+                  <div className={styles.resultActions}>
+                    <Badge tone={attention === "unresolved" ? "warning" : "info"} size="sm" data-request-state={attention}>
+                      {REQUEST_STATE_TEXT[attention]}
+                    </Badge>
+                  </div>
+                )}
               </li>
             );
           })}
@@ -233,10 +226,10 @@ function ResultsPanel() {
   );
 }
 
+/** Legacy demo documents: a separate dataset, not linked to Web API v2 projects (Documents integration is later). */
 function DocumentsPanel() {
   const now = useNow();
   const { documents, status, retry } = useDocuments();
-  const { byId } = useProjects();
   const recent = [...documents].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5);
 
   return (
@@ -244,6 +237,7 @@ function DocumentsPanel() {
       <CardHeader
         id="dash-docs"
         title="Недавние документы"
+        description="Отдельный демо-набор: файлы пока не связаны с проектами"
         action={
           <ButtonLink href="/documents" variant="ghost" size="sm" iconRight={ArrowRight}>
             Все файлы
@@ -269,26 +263,22 @@ function DocumentsPanel() {
       )}
       {status === "ready" && recent.length > 0 && (
         <ul className={styles.docList}>
-          {recent.map((d) => {
-            const project = d.projectId ? byId.get(d.projectId) : undefined;
-            return (
-              <li key={d.id}>
-                <Link href={`/documents?doc=${d.id}`} className={styles.docRow}>
-                  <FileIcon kind={d.kind} size="sm" />
-                  <span className={styles.docText}>
-                    <span className={styles.docName} title={d.name}>
-                      {d.name}
-                    </span>
-                    <span className={styles.docMeta}>
-                      {kindLabel[d.kind]}
-                      {project ? ` · ${project.name}` : ""}
-                    </span>
+          {recent.map((d) => (
+            <li key={d.id}>
+              <Link href={`/documents?doc=${d.id}`} className={styles.docRow}>
+                <FileIcon kind={d.kind} size="sm" />
+                <span className={styles.docText}>
+                  <span className={styles.docName} title={d.name}>
+                    {d.name}
                   </span>
-                  <span className={styles.docTime}>{now ? formatRelative(d.updatedAt, now) : ""}</span>
-                </Link>
-              </li>
-            );
-          })}
+                  <span className={styles.docMeta}>
+                    {kindLabel[d.kind]} · <FlaskConical size={11} aria-hidden /> демо
+                  </span>
+                </span>
+                <span className={styles.docTime}>{now ? formatRelative(d.updatedAt, now) : ""}</span>
+              </Link>
+            </li>
+          ))}
         </ul>
       )}
     </Card>

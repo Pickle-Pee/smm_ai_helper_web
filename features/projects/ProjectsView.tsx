@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FolderPlus, LayoutGrid, List, Plus, SearchX } from "lucide-react";
+import { FlaskConical, FolderSearch, LayoutGrid, List, Plus, SearchX } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { SearchField, Select } from "@/components/ui/Form";
@@ -12,13 +12,11 @@ import { Page, PageHeader } from "@/components/ui/PageHeader";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
-import { useWorkspace } from "@/features/workspace/store";
-import { countThreadsByProject } from "@/features/workspace/model";
-import { useDocuments } from "@/features/documents/store";
-import { formatRelative, quoted } from "@/lib/format";
+import { PROJECT_ROLE_LABEL } from "@/lib/api/v2/presenters";
+import { formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cx } from "@/lib/cx";
-import { useProjects } from "./store";
+import { useProjectContext } from "./context";
 import {
   contextCompleteness,
   countByStatus,
@@ -30,37 +28,39 @@ import {
   type ProjectStatusFilter,
 } from "./model";
 import { ProjectCard, statusTone } from "./components/ProjectCard";
-import { ProjectFormDialog } from "./components/ProjectFormDialog";
+import { PROJECT_WRITES_UNAVAILABLE } from "./copy";
 import styles from "./Projects.module.css";
 
 type View = "grid" | "list";
 
+/**
+ * Projects (F3): the list comes from the unified Web API v2 project context — the same ids as Dashboard and the AI
+ * Workspace. Read-only: no local or simulated project creation.
+ */
 export function ProjectsView() {
   const router = useRouter();
   const params = useSearchParams();
   const now = useNow();
   const { notify } = useToast();
-  const { projects, status, retry, createProject } = useProjects();
-  const { threads } = useWorkspace();
-  const { documents } = useDocuments();
+  const { projects: views, byId, status, retry, threadsFor } = useProjectContext();
   const [filter, setFilter] = useState<ProjectFilter>(defaultProjectFilter);
   const [view, setView] = useState<View>("grid");
-  const [createOpen, setCreateOpen] = useState(false);
 
+  // Old links `/projects?create=1` (and bookmarks) explain why nothing opens instead of showing a fake form.
   useEffect(() => {
     if (params.get("create") === "1") {
-      setCreateOpen(true);
       router.replace("/projects", { scroll: false });
+      notify({ tone: "info", title: "Создание проектов пока недоступно", description: PROJECT_WRITES_UNAVAILABLE });
     }
-  }, [params, router]);
+  }, [params, router, notify]);
 
+  const projects = useMemo(() => views.map((v) => v.project), [views]);
   const counts = useMemo(() => countByStatus(projects), [projects]);
   const visible = useMemo(() => filterProjects(projects, filter), [projects, filter]);
-  const threadCounts = useMemo(() => countThreadsByProject(threads), [threads]);
-  const statsFor = (id: string) => ({
-    threads: threadCounts.get(id) ?? 0,
-    documents: documents.filter((d) => d.projectId === id).length,
-  });
+  const statsFor = (id: string) => {
+    const role = byId.get(id)?.role;
+    return { threads: threadsFor(id).length, roleLabel: role ? PROJECT_ROLE_LABEL[role] : "—" };
+  };
   const filtersActive = filter.query.trim() !== "" || filter.status !== "all";
 
   return (
@@ -69,11 +69,16 @@ export function ProjectsView() {
         title="Проекты и бренды"
         description="Бизнес-контекст каждого бренда: продукт, аудитория, конкуренты и каналы. AI учитывает его в запросах."
         actions={
-          <Button variant="primary" icon={Plus} onClick={() => setCreateOpen(true)} disabled={status !== "ready"}>
+          <Button variant="primary" icon={Plus} disabled aria-describedby="projects-writes-note" title={PROJECT_WRITES_UNAVAILABLE}>
             Новый проект
           </Button>
         }
       />
+
+      <p className={styles.notice} id="projects-writes-note">
+        <FlaskConical size={16} aria-hidden />
+        <span>Проекты — тестовые данные Web API v2: те же, что на Обзоре и в AI Workspace. {PROJECT_WRITES_UNAVAILABLE}</span>
+      </p>
 
       <div className={styles.toolbar}>
         <SearchField
@@ -140,14 +145,9 @@ export function ProjectsView() {
       {status === "ready" && projects.length === 0 && (
         <div className={styles.panel}>
           <EmptyState
-            icon={FolderPlus}
-            title="Создайте первый проект"
-            description="Проект хранит контекст бренда — описание продукта, аудиторию, конкурентов. С ним ответы AI становятся точнее."
-            action={
-              <Button variant="primary" icon={Plus} onClick={() => setCreateOpen(true)}>
-                Новый проект
-              </Button>
-            }
+            icon={FolderSearch}
+            title="Проектов пока нет"
+            description="В тестовых данных Web API v2 нет доступных вам проектов. Создание проектов появится вместе с подключением Web API."
           />
         </div>
       )}
@@ -183,7 +183,7 @@ export function ProjectsView() {
                 <th scope="col">Статус</th>
                 <th scope="col">Контекст</th>
                 <th scope="col">Диалоги</th>
-                <th scope="col">Файлы</th>
+                <th scope="col">Роль</th>
                 <th scope="col">Обновлён</th>
               </tr>
             </thead>
@@ -197,7 +197,7 @@ export function ProjectsView() {
                       <div className={styles.rowBrand}>
                         <Monogram name={p.name} color={p.color} size="sm" />
                         <div className={styles.rowBrandText}>
-                          <Link href={`/projects/${p.id}`} className={styles.rowLink} title={p.name}>
+                          <Link href={`/projects/${encodeURIComponent(p.id)}`} className={styles.rowLink} title={p.name}>
                             {p.name}
                           </Link>
                           <span>{p.industry}</span>
@@ -215,9 +215,7 @@ export function ProjectsView() {
                     <td data-label="Диалоги" className="tabular">
                       {stats.threads}
                     </td>
-                    <td data-label="Файлы" className="tabular">
-                      {stats.documents}
-                    </td>
+                    <td data-label="Роль">{stats.roleLabel}</td>
                     <td data-label="Обновлён">{now ? formatRelative(p.updatedAt, now) : ""}</td>
                   </tr>
                 );
@@ -227,17 +225,6 @@ export function ProjectsView() {
         </div>
       )}
 
-      <ProjectFormDialog
-        open={createOpen}
-        mode="create"
-        onClose={() => setCreateOpen(false)}
-        onSubmit={(values) => {
-          const project = createProject(values);
-          setCreateOpen(false);
-          notify({ title: `Проект ${quoted(project.name)} создан`, description: "Сохранён только в этой вкладке до перезагрузки страницы." });
-          router.push(`/projects/${project.id}`);
-        }}
-      />
     </Page>
   );
 }

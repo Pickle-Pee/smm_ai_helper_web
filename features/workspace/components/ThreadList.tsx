@@ -25,7 +25,7 @@ export interface ThreadListItem {
   requestState?: "running" | "unresolved" | null;
 }
 
-const REQUEST_STATE_TEXT = { running: "Запрос выполняется", unresolved: "Исход запроса не подтверждён" } as const;
+export const REQUEST_STATE_TEXT = { running: "Запрос выполняется", unresolved: "Исход запроса не подтверждён" } as const;
 
 export interface ThreadListProject {
   id: ID;

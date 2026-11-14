@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, FileText, FolderSearch, History, MessagesSquare, Pencil, Sparkles } from "lucide-react";
+import { ArrowLeft, FileText, FlaskConical, FolderSearch, Info, MessagesSquare, Pencil, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, CardHeader, Meter } from "@/components/ui/Card";
@@ -11,30 +11,39 @@ import { Monogram } from "@/components/ui/Monogram";
 import { Page } from "@/components/ui/PageHeader";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
 import { TabPanel, Tabs, useTabsId } from "@/components/ui/Tabs";
-import { useToast } from "@/components/ui/Toast";
 import { useWorkspace } from "@/features/workspace/store";
 import { scenarioPrompt, scenarios } from "@/features/workspace/scenarios";
-import { resultStatusLabel } from "@/features/workspace/model";
-import { ResultKindIcon } from "@/features/workspace/components/ResultBadges";
-import { useDocuments } from "@/features/documents/store";
-import { FileIcon } from "@/features/documents/components/FileVisual";
-import { kindLabel } from "@/features/documents/model";
-import { formatDate, formatFileSize, formatRelative } from "@/lib/format";
+import { REQUEST_STATE_TEXT } from "@/features/workspace/components/ThreadList";
+import { ThreadKindIcon } from "@/features/workspace/components/ResultBadges";
+import { PROJECT_ROLE_LABEL, type BrandContextView, type WorkspaceProjectView } from "@/lib/api/v2/presenters";
+import { formatDate, formatRelative, quoted } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import type { Project, ScenarioId } from "@/lib/types";
-import { useProjects } from "./store";
+import { useProjectContext, useProjectDetail } from "./context";
+import { useLegacyDemoProjects } from "./store";
 import { contextCompleteness, projectStatusLabel } from "./model";
+import { PROJECT_WRITES_UNAVAILABLE } from "./copy";
 import { statusTone } from "./components/ProjectCard";
-import { ProjectFormDialog } from "./components/ProjectFormDialog";
 import styles from "./Projects.module.css";
 
-type Tab = "overview" | "history" | "documents";
+type Tab = "overview" | "threads" | "documents";
 
+/**
+ * Project page (F3): `getProject` + `getProjectBrand` from the unified Web API v2 project context. The id in the URL
+ * is used as is — an unknown, foreign or legacy demo id is a «not found» page, never another project.
+ */
 export function ProjectDetailView({ projectId }: { projectId: string }) {
-  const { status, byId, retry } = useProjects();
-  const project = byId.get(projectId);
+  const { detail, retry } = useProjectDetail(projectId);
+  const { byId: legacyProjects } = useLegacyDemoProjects();
+  const { selectProject } = useProjectContext();
+  const resolved = detail.status === "ready";
 
-  if (status === "loading") {
+  // Opening a project makes it the session's brand: Dashboard Briefing and a new Workspace conversation use it.
+  useEffect(() => {
+    if (resolved) selectProject(projectId);
+  }, [resolved, projectId, selectProject]);
+
+  if (detail.status === "loading") {
     return (
       <Page>
         <LoadingRegion label="Загрузка проекта">
@@ -52,26 +61,31 @@ export function ProjectDetailView({ projectId }: { projectId: string }) {
     );
   }
 
-  if (status === "error") {
+  if (detail.status === "error") {
     return (
       <Page>
         <BackLink />
         <div className={styles.panel}>
-          <ErrorState onRetry={retry} title="Не удалось загрузить проект" />
+          <ErrorState onRetry={retry} title="Не удалось загрузить проект" description="Тестовые данные временно недоступны. Попробуйте ещё раз." />
         </div>
       </Page>
     );
   }
 
-  if (!project) {
+  if (detail.status === "not_found" || !detail.project) {
+    const legacy = legacyProjects.get(projectId);
     return (
       <Page>
         <BackLink />
         <div className={styles.panel}>
           <EmptyState
             icon={FolderSearch}
-            title="Проект не найден"
-            description="Возможно, ссылка устарела. В демо-версии созданные проекты хранятся только до перезагрузки страницы."
+            title={legacy ? "Этот проект из старого демо-набора" : "Проект не найден"}
+            description={
+              legacy
+                ? `${quoted(legacy.name)} есть только в демо-наборе раздела «Документы». Проекты, Обзор и AI Workspace работают с тестовыми данными Web API v2, где такого проекта нет.`
+                : "В тестовых данных Web API v2 нет такого проекта или у вас нет к нему доступа. Возможно, ссылка устарела."
+            }
             action={
               <ButtonLink href="/projects" variant="primary">
                 К списку проектов
@@ -83,7 +97,7 @@ export function ProjectDetailView({ projectId }: { projectId: string }) {
     );
   }
 
-  return <ProjectDetail project={project} />;
+  return <ProjectDetail view={detail.project} brand={detail.brand} brandError={detail.brandError} />;
 }
 
 function BackLink() {
@@ -94,52 +108,49 @@ function BackLink() {
   );
 }
 
-function ProjectDetail({ project }: { project: Project }) {
+/** The UI project with the brand fields of `getProjectBrand` (fresher than the copy embedded in `Project`). */
+function withBrand(project: Project, brand: BrandContextView | null): Project {
+  if (!brand) return project;
+  return {
+    ...project,
+    industry: brand.industry || project.industry,
+    description: brand.description,
+    audience: brand.audience,
+    usp: brand.usp,
+    toneOfVoice: brand.tone,
+    goals: brand.goals.join("; "),
+    competitors: brand.competitors,
+    channels: brand.channels,
+  };
+}
+
+function ProjectDetail({ view, brand, brandError }: { view: WorkspaceProjectView; brand: BrandContextView | null; brandError: boolean }) {
   const router = useRouter();
   const now = useNow();
-  const { notify } = useToast();
-  const { updateProject } = useProjects();
-  const { threads, prepareDraft } = useWorkspace();
-  const { documents } = useDocuments();
+  const { prepareDraft } = useWorkspace();
+  const { threadsFor, attentionOf } = useProjectContext();
   const tabsId = useTabsId();
   const [tab, setTab] = useState<Tab>("overview");
-  const [editOpen, setEditOpen] = useState(false);
 
-  const projectThreads = useMemo(() => threads.filter((t) => t.projectId === project.id), [threads, project.id]);
-  const projectDocs = useMemo(
-    () => documents.filter((d) => d.projectId === project.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [documents, project.id],
-  );
+  const project = useMemo(() => withBrand(view.project, brand), [view.project, brand]);
+  const projectThreads = threadsFor(project.id);
   const { percent, missing } = contextCompleteness(project);
+  const workspaceHref = `/workspace?new=1&project=${encodeURIComponent(project.id)}`;
+  const editNoteId = "project-writes-note";
 
+  /** Opens a NEW conversation of exactly this project. A scenario only pre-fills the composer: nothing is sent. */
   function ask(scenarioId: ScenarioId | null) {
     const scenario = scenarios.find((s) => s.id === scenarioId);
-    prepareDraft({ projectId: project.id, scenarioId, text: scenario ? scenarioPrompt(scenario, project.name) : "" });
-    router.push("/workspace?new=1");
+    if (scenario) {
+      prepareDraft({
+        projectId: project.id,
+        scenarioId: scenario.id,
+        text: scenarioPrompt(scenario, project.name),
+        origin: { label: project.name, href: `/projects/${encodeURIComponent(project.id)}` },
+      });
+    }
+    router.push(workspaceHref);
   }
-
-  const events = useMemo(() => {
-    const list: { id: string; at: string; icon: "thread" | "result" | "doc"; title: string; detail: string; href: string; kind?: ScenarioId }[] = [];
-    for (const t of projectThreads) {
-      list.push({ id: `t-${t.id}`, at: t.createdAt, icon: "thread", title: `Начат диалог «${t.title}»`, detail: "AI Workspace", href: `/workspace?thread=${t.id}` });
-      for (const m of t.messages) {
-        if (m.result)
-          list.push({
-            id: `r-${m.id}`,
-            at: m.createdAt,
-            icon: "result",
-            kind: m.result.kind,
-            title: m.result.title,
-            detail: `AI-результат · ${resultStatusLabel[m.result.status]}`,
-            href: `/workspace?thread=${t.id}`,
-          });
-      }
-    }
-    for (const d of projectDocs) {
-      list.push({ id: `d-${d.id}`, at: d.updatedAt, icon: "doc", title: d.name, detail: `${kindLabel[d.kind]} · обновлён`, href: `/documents?doc=${d.id}` });
-    }
-    return list.sort((a, b) => b.at.localeCompare(a.at));
-  }, [projectThreads, projectDocs]);
 
   const contextRows: { label: string; value: string }[] = [
     { label: "Описание продукта", value: project.description },
@@ -147,6 +158,7 @@ function ProjectDetail({ project }: { project: Project }) {
     { label: "УТП", value: project.usp },
     { label: "Tone of voice", value: project.toneOfVoice },
     { label: "Цели", value: project.goals },
+    { label: "География", value: brand?.geography ?? "" },
   ];
 
   return (
@@ -160,19 +172,34 @@ function ProjectDetail({ project }: { project: Project }) {
             <Badge tone={statusTone[project.status]} size="sm" dot={project.status === "active"}>
               {projectStatusLabel[project.status]}
             </Badge>
+            <Badge tone={view.canSubmit ? "outline" : "warning"} size="sm" className={styles.roleBadge}>
+              {PROJECT_ROLE_LABEL[view.role]}
+              {view.canSubmit ? "" : " · только просмотр"}
+            </Badge>
           </div>
           <h1 className={styles.detailTitle}>{project.name}</h1>
-          <p className={styles.detailMeta}>Создан {formatDate(project.createdAt)}</p>
+          <p className={styles.detailMeta}>
+            Создан {formatDate(project.createdAt)} · <FlaskConical size={12} aria-hidden /> тестовые данные Web API v2
+          </p>
         </div>
         <div className={styles.detailActions}>
-          <Button icon={Pencil} onClick={() => setEditOpen(true)}>
+          <Button icon={Pencil} disabled aria-describedby={editNoteId} title={PROJECT_WRITES_UNAVAILABLE}>
             Редактировать контекст
           </Button>
           <Button variant="ai" icon={Sparkles} onClick={() => ask(null)}>
-            Запрос по бренду
+            Открыть в AI Workspace
           </Button>
         </div>
       </header>
+
+      <p className={styles.notice} id={editNoteId}>
+        <Info size={16} aria-hidden />
+        <span>
+          {view.canSubmit
+            ? PROJECT_WRITES_UNAVAILABLE
+            : `Ваша роль в проекте — ${PROJECT_ROLE_LABEL[view.role].toLocaleLowerCase("ru")}: можно смотреть контекст и диалоги, но не отправлять запросы. ${PROJECT_WRITES_UNAVAILABLE}`}
+        </span>
+      </p>
 
       <Tabs
         label="Разделы проекта"
@@ -181,37 +208,38 @@ function ProjectDetail({ project }: { project: Project }) {
         onChange={setTab}
         items={[
           { id: "overview", label: "Контекст" },
-          { id: "history", label: "История работы", count: events.length },
-          { id: "documents", label: "Документы", count: projectDocs.length },
+          { id: "threads", label: "Copilot-диалоги", count: projectThreads.length },
+          { id: "documents", label: "Документы" },
         ]}
       />
 
       {tab === "overview" && (
         <TabPanel idBase={tabsId} tab="overview" className={styles.overview}>
           <Card aria-labelledby="ctx-title">
-            <CardHeader
-              id="ctx-title"
-              title="Бизнес-контекст"
-              description="Эти данные AI подставляет в каждый запрос по бренду"
-              action={
-                <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditOpen(true)}>
-                  Изменить
-                </Button>
-              }
-            />
+            <CardHeader id="ctx-title" title="Бизнес-контекст" description="Контекст бренда, который Copilot получает вместе с запросом" />
+            {brandError && (
+              <p className={`${styles.notice} ${styles.noticeInline}`} role="status">
+                <Info size={16} aria-hidden />
+                <span>Контекст бренда не удалось перечитать — показана копия из карточки проекта.</span>
+              </p>
+            )}
             <dl className={styles.contextList}>
               {contextRows.map((row) => (
                 <div key={row.label} className={styles.contextRow}>
                   <dt>{row.label}</dt>
-                  <dd>
-                    {row.value || (
-                      <button type="button" className={styles.fillLink} onClick={() => setEditOpen(true)}>
-                        Не заполнено — добавить
-                      </button>
-                    )}
-                  </dd>
+                  <dd>{row.value || <span className={styles.muted}>Не заполнено</span>}</dd>
                 </div>
               ))}
+              {brand && (
+                <div className={styles.contextRow}>
+                  <dt>Источник</dt>
+                  <dd className={styles.muted}>
+                    {brand.importedFrom ? `Скопирован из: ${brand.importedFrom.label}, ${formatDate(brand.importedFrom.at)}. ` : ""}
+                    Обновлён {formatDate(brand.updatedAt)}
+                    {brand.updatedBy ? ` · ${brand.updatedBy}` : ""}
+                  </dd>
+                </div>
+              )}
             </dl>
           </Card>
 
@@ -220,7 +248,7 @@ function ProjectDetail({ project }: { project: Project }) {
               <Meter
                 value={percent}
                 label="Полнота контекста"
-                hint={missing.length ? `Добавьте: ${missing.join(", ").toLocaleLowerCase("ru")}.` : "Всё заполнено — AI получает полный контекст."}
+                hint={missing.length ? `Не заполнено: ${missing.join(", ").toLocaleLowerCase("ru")}.` : "Всё заполнено — Copilot получает полный контекст."}
               />
             </Card>
             <Card aria-labelledby="competitors-title">
@@ -273,14 +301,14 @@ function ProjectDetail({ project }: { project: Project }) {
         </TabPanel>
       )}
 
-      {tab === "history" && (
-        <TabPanel idBase={tabsId} tab="history">
+      {tab === "threads" && (
+        <TabPanel idBase={tabsId} tab="threads">
           <Card>
-            {events.length === 0 ? (
+            {projectThreads.length === 0 ? (
               <EmptyState
-                icon={History}
-                title="История пока пуста"
-                description="Здесь появятся диалоги, AI-результаты и документы этого бренда."
+                icon={MessagesSquare}
+                title="Диалогов пока нет"
+                description="Copilot-диалоги этого бренда появятся здесь."
                 action={
                   <Button variant="ai" icon={Sparkles} onClick={() => ask(null)}>
                     Первый запрос
@@ -288,30 +316,29 @@ function ProjectDetail({ project }: { project: Project }) {
                 }
               />
             ) : (
-              <ol className={styles.timeline}>
-                {events.map((e) => (
-                  <li key={e.id} className={styles.timelineItem}>
-                    <span className={styles.timelineIcon}>
-                      {e.icon === "result" && e.kind ? (
-                        <ResultKindIcon kind={e.kind} size="sm" />
-                      ) : (
-                        <span className={styles.timelineGlyph} aria-hidden>
-                          {e.icon === "thread" ? <MessagesSquare size={15} /> : <FileText size={15} />}
-                        </span>
+              <ul className={styles.threadList} aria-label={`Copilot-диалоги проекта ${project.name}`}>
+                {projectThreads.map((t) => {
+                  const attention = attentionOf(t);
+                  return (
+                    <li key={t.id} className={styles.threadRow}>
+                      <ThreadKindIcon size="sm" />
+                      <div className={styles.threadText}>
+                        <Link href={`/workspace?thread=${encodeURIComponent(t.id)}`} className={styles.threadTitle} title={t.title}>
+                          {t.title}
+                        </Link>
+                        <p className={styles.threadMeta}>
+                          Copilot · обновлён {now ? formatRelative(t.updatedAt, now) : formatDate(t.updatedAt)}
+                        </p>
+                      </div>
+                      {attention && (
+                        <Badge tone={attention === "unresolved" ? "warning" : "info"} size="sm" data-request-state={attention}>
+                          {REQUEST_STATE_TEXT[attention]}
+                        </Badge>
                       )}
-                    </span>
-                    <div className={styles.timelineText}>
-                      <Link href={e.href} className={styles.timelineTitle}>
-                        {e.title}
-                      </Link>
-                      <p className={styles.timelineDetail}>{e.detail}</p>
-                    </div>
-                    <time className={styles.timelineTime} dateTime={e.at}>
-                      {now ? formatRelative(e.at, now) : ""}
-                    </time>
-                  </li>
-                ))}
-              </ol>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </Card>
         </TabPanel>
@@ -320,43 +347,19 @@ function ProjectDetail({ project }: { project: Project }) {
       {tab === "documents" && (
         <TabPanel idBase={tabsId} tab="documents">
           <Card>
-            {projectDocs.length === 0 ? (
-              <EmptyState icon={FileText} title="Документов нет" description="Таблицы, стратегии и презентации бренда появятся здесь." />
-            ) : (
-              <ul className={styles.docList}>
-                {projectDocs.map((d) => (
-                  <li key={d.id}>
-                    <Link href={`/documents?doc=${d.id}`} className={styles.docRow}>
-                      <FileIcon kind={d.kind} />
-                      <span className={styles.docText}>
-                        <span className={styles.docName} title={d.name}>
-                          {d.name}
-                        </span>
-                        <span className={styles.docMeta}>
-                          {kindLabel[d.kind]} · {formatFileSize(d.sizeKb)}
-                        </span>
-                      </span>
-                      <span className={styles.docTime}>{now ? formatRelative(d.updatedAt, now) : ""}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <EmptyState
+              icon={FileText}
+              title="Документы пока не связаны с проектами"
+              description="Раздел «Документы» — отдельный демо-набор со своими брендами. Связь файлов с проектами Web API v2 появится после подключения хранилища и авторизации."
+              action={
+                <ButtonLink href="/documents" variant="secondary">
+                  Открыть демо-документы
+                </ButtonLink>
+              }
+            />
           </Card>
         </TabPanel>
       )}
-
-      <ProjectFormDialog
-        open={editOpen}
-        mode="edit"
-        project={project}
-        onClose={() => setEditOpen(false)}
-        onSubmit={(values) => {
-          updateProject(project.id, values);
-          setEditOpen(false);
-          notify({ title: "Контекст бренда обновлён", description: "Изменения сохранены только в этой вкладке." });
-        }}
-      />
     </Page>
   );
 }

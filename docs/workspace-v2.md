@@ -21,10 +21,11 @@
 | Reopen a stored snapshot | — | `getMessageResult` → result view or `format_unsupported` / `corrupted` / `unreadable` / `not_ready` / `gone` |
 | Status / progress | — | `RequestStatus` ← `presentExecution` (server state verbatim) |
 
-Still on the legacy local store (`features/workspace/store.tsx`, `WorkspaceProvider`): Dashboard (recent results,
-Briefing), Projects (counts, activity), Documents, global search and Settings demo states. The legacy store can no
-longer create threads or messages; other screens only hand a **draft** to the Workspace (`prepareDraft`). The Settings
-playground «Web API v2 · примеры» (F1) is unchanged.
+Since F3 ([project-context.md](project-context.md)) Dashboard, Briefing, Projects, the project page, the sidebar and
+global search read projects and threads from the SAME controller. Still on the legacy local store
+(`features/workspace/store.tsx`, `WorkspaceProvider`): draft handoff (`prepareDraft`) and recognising stale legacy
+thread links; Documents and its demo brands stay on the legacy dataset. The legacy store can no longer create threads
+or messages. The Settings playground «Web API v2 · примеры» (F1) is unchanged.
 
 ## 2. Architecture
 
@@ -113,11 +114,16 @@ does not open IndexedDB in F2.
 
 ## 5. Project ids and navigation
 
-The Workspace uses **only** fixture project/thread ids. Legacy demo ids (`p-…`, `t-…`) are never mapped:
+The Workspace uses **only** fixture project/thread ids — since F3 the same ids every other screen uses. Legacy demo
+ids (`p-…`, `t-…`) are never mapped:
 
-* a draft from Dashboard / Projects / Documents keeps its text; if its project id is not a fixture project, the
-  project selector stays empty with a notice, and nothing can be sent until the user picks a project;
-* `/workspace?thread=t-…` (links from Dashboard/Projects/search) shows «Этот диалог из демо-набора главной страницы»;
+* a new conversation takes its project from, in order: a handed-over draft, `?new=1&project=<id>`, the session's
+  selected brand, else the first active project. A draft/link id that does not resolve (legacy, foreign, unknown)
+  leaves the project selector **empty** with a notice; nothing can be sent until the user picks a project;
+* a draft keeps its text, scenario and origin («Черновик из раздела …»); it is never sent automatically;
+* the project is re-decided whenever the route (`?new=1&project=…` or `?thread=…`) changes, also without a remount
+  (links within the Workspace, Back/Forward); a manual pick is kept within the same route;
+* `/workspace?thread=t-…` (old links) shows «Этот диалог из старого демо-набора»;
 * unknown fixture ids show «Диалог не найден».
 
 ## 6. Preview controls
@@ -131,5 +137,5 @@ thread (`setThreadScenario`): direct, module, workflow, needs-input, failed, blo
 
 No real sessions, so no durable pending store in the app; fixture data and unconfirmed requests reset on reload; no
 thread deletion (not in `WebApiV2`); no web chat (`kind: "chat"` disabled); Documents, teams and plans stay mock;
-Dashboard/Projects still show the legacy dataset; the HTTP switch remains a separate reviewed change
+Documents still show the legacy dataset; the HTTP switch remains a separate reviewed change
 (`docs/api-client.md` §9).

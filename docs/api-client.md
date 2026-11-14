@@ -26,6 +26,7 @@
 | Mode selection | `lib/api/v2/mode.ts` | always `fixture` |
 | Demo UI | Settings → «Web API v2 · примеры» (`features/workspace/contract-demo/*`, `ContractDemoPanel`, `ContractResultCard`) | in-memory, labelled «Пример из тестовых данных» |
 | AI Workspace (F2) | `features/workspace/v2/controller.ts`, `WorkspaceView` | uses the fixture transport through `RequestCoordinator` — see [workspace-v2.md](workspace-v2.md) |
+| Unified project context (F3) | `features/projects/context.tsx` over the same controller | Dashboard, Projects, project page, sidebar, search — see [project-context.md](project-context.md) |
 | Pending request stores (F2) | `lib/api/v2/pending-store.ts`, `pending-store-idb.ts` | memory in the preview; IndexedDB adapter ready and tested, enabled only with a verified principal |
 
 Unchanged on purpose: the read-only UI `ApiClient` (`lib/api/contracts.ts`), the mock dataset, all feature stores and

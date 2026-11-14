@@ -1,28 +1,34 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, type ReactNode } from "react";
 import { useApi } from "@/lib/api/provider";
 import { applyDemoView, type ResourceStatus } from "@/lib/resource";
-import { createId } from "@/lib/format";
-import type { ID, Project, ProjectInput } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import { useAccount } from "@/features/account/store";
-import { buildProject, initialProjectsState, projectsReducer } from "./model";
+import { initialProjectsState, projectsReducer } from "./model";
 
-interface ProjectsContextValue {
+/**
+ * LEGACY demo brands (F0 mock dataset, ids `p-…`).
+ *
+ * Since F3 no project screen reads this store: Dashboard, Projects, project pages, the sidebar, search and the AI
+ * Workspace use the unified Web API v2 project context (`./context.tsx`). What is left:
+ * - the Documents demo, whose files are tagged with these legacy brands (labelled as a separate demo dataset);
+ * - recognising stale `p-…` links and drafts, so they are explained instead of silently mapped to another project.
+ *
+ * It is read-only: creating or editing projects locally was removed in F3, because a local project would look like a
+ * real one while the AI Workspace could never find it. Remove this store once Documents move to a real API.
+ */
+interface LegacyProjectsContextValue {
   status: ResourceStatus;
   items: Project[];
   reload: () => Promise<void>;
-  createProject: (input: ProjectInput) => Project;
-  updateProject: (id: ID, patch: Partial<Omit<Project, "id" | "createdAt">>) => void;
 }
 
-const ProjectsContext = createContext<ProjectsContextValue | null>(null);
+const LegacyProjectsContext = createContext<LegacyProjectsContextValue | null>(null);
 
-export function ProjectsProvider({ children }: { children: ReactNode }) {
+export function LegacyDemoProjectsProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const [state, dispatch] = useReducer(projectsReducer, initialProjectsState);
-  const countRef = useRef(0);
-  countRef.current = state.items.length;
 
   const reload = useCallback(async () => {
     dispatch({ type: "loading" });
@@ -37,28 +43,15 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
     void reload();
   }, [reload]);
 
-  const createProject = useCallback((input: ProjectInput) => {
-    const project = buildProject(input, createId("p"), new Date().toISOString(), countRef.current);
-    dispatch({ type: "created", project });
-    return project;
-  }, []);
+  const value = useMemo(() => ({ status: state.status, items: state.items, reload }), [state, reload]);
 
-  const updateProject = useCallback((id: ID, patch: Partial<Omit<Project, "id" | "createdAt">>) => {
-    dispatch({ type: "updated", id, patch, at: new Date().toISOString() });
-  }, []);
-
-  const value = useMemo(
-    () => ({ status: state.status, items: state.items, reload, createProject, updateProject }),
-    [state, reload, createProject, updateProject],
-  );
-
-  return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
+  return <LegacyProjectsContext.Provider value={value}>{children}</LegacyProjectsContext.Provider>;
 }
 
-/** Projects as the UI should render them, with the demo-state override applied. */
-export function useProjects() {
-  const ctx = useContext(ProjectsContext);
-  if (!ctx) throw new Error("useProjects must be used inside <ProjectsProvider>");
+/** Legacy demo brands of the Documents demo, with the demo-state override applied. Not a project source. */
+export function useLegacyDemoProjects() {
+  const ctx = useContext(LegacyProjectsContext);
+  if (!ctx) throw new Error("useLegacyDemoProjects must be used inside <LegacyDemoProjectsProvider>");
   const { demoView, setDemoView } = useAccount();
   const view = applyDemoView(demoView, ctx.status, ctx.items);
 
@@ -69,13 +62,5 @@ export function useProjects() {
 
   const byId = useMemo(() => new Map(view.items.map((p) => [p.id, p])), [view.items]);
 
-  return {
-    status: view.status,
-    projects: view.items,
-    byId,
-    retry,
-    reload: ctx.reload,
-    createProject: ctx.createProject,
-    updateProject: ctx.updateProject,
-  };
+  return { status: view.status, projects: view.items, byId, retry, reload: ctx.reload };
 }
