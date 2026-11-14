@@ -363,3 +363,80 @@ describe("mergeMessages", () => {
     expect(merged.map((m) => m.role === "user" && m.isLatestRevision)).toEqual([false, true]);
   });
 });
+
+describe("late replies", () => {
+  /** Holds the next recovery read until `release()` is called. */
+  function gateRecovery(api: FixtureWebApiV2Client) {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const original = FixtureWebApiV2Client.prototype.getRequestByKey;
+    vi.spyOn(api, "getRequestByKey").mockImplementationOnce(async (threadId, key, options) => {
+      await gate;
+      return original.call(api, threadId, key, options);
+    });
+    return () => release();
+  }
+
+  it("a slow recovery of a superseded request does not overwrite the newer request or lift its in-flight guard", async () => {
+    const { controller, api, submit } = setup({ readOutages: 1, pollsUntilDone: 50 }, () => new Promise(() => {}));
+    await controller.start();
+    const id = await newRequest(controller, "unavailable_after_admission");
+    expect(detail(controller, id).request.phase).toBe("unknown");
+    const firstKey = submit.mock.calls[0][1].request_key;
+
+    const release = gateRecovery(api);
+    const check = controller.checkStatus(id); // A: slow read in progress
+    await controller.startNewRequest(id, {}, { acknowledgeMayRegenerate: true }, "workflow"); // B starts and runs
+    expect(detail(controller, id).request).toMatchObject({ phase: "waiting", execution: { status: "running" } });
+    const newKey = detail(controller, id).request.execution!.requestKey;
+    expect(newKey).not.toBe(firstKey);
+
+    release();
+    await check; // A's late answer: completed (it was admitted)
+    expect(detail(controller, id).request).toMatchObject({ phase: "waiting", execution: { status: "running", requestKey: newKey } });
+    // A's messages are still part of the history.
+    expect(detail(controller, id).messages.some((m) => m.role === "user" && m.requestKey === firstKey)).toBe(true);
+    // The coordinator's guard still sees B in flight: a normal request is refused locally, nothing is sent.
+    await controller.submit(id, "Ещё");
+    expect(detail(controller, id).request.refusal?.reason).toBe("request_in_flight");
+    expect(submit).toHaveBeenCalledTimes(2);
+    controller.dispose();
+  });
+
+  it("a late 'unknown' about a superseded key does not turn the newer result into an unknown outcome", async () => {
+    const { controller, api } = setup();
+    await controller.start();
+    const id = await newRequest(controller, "unavailable_before_admission");
+    expect(detail(controller, id).request.unknown?.reason).toBe("no_visible_record");
+
+    const release = gateRecovery(api);
+    const check = controller.checkStatus(id);
+    await controller.startNewRequest(id, {}, { acknowledgeMayRegenerate: true }, "direct_result");
+    expect(detail(controller, id).request).toMatchObject({ phase: "settled", execution: { status: "completed" } });
+    release();
+    await check; // 404 for the superseded key
+    expect(detail(controller, id).request).toMatchObject({ phase: "settled", execution: { status: "completed" }, unknown: null });
+  });
+});
+
+describe("429 limits", () => {
+  it.each([
+    ["quota_exceeded", "2026-11-22T00:00:00Z"],
+    ["rate_limited", null],
+  ] as const)("%s: rejected before admission, explained, never retried automatically, thread not fenced", async (scenario, resetsAt) => {
+    let sleeps = 0;
+    const { controller, submit, api } = setup({}, async () => {
+      sleeps += 1;
+    });
+    await controller.start();
+    const id = await newRequest(controller, scenario);
+    expect(detail(controller, id).request).toMatchObject({ phase: "rejected", error: { code: scenario, status: 429, resetsAt }, fencedKeys: [] });
+    expect(detail(controller, id).request.error?.retryAfterSeconds).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(sleeps).toBe(0); // no client-side retry timer either
+    expect(api.stats.simulatedCoreAdmissions).toBe(0);
+    // Nothing was admitted, so a new request (by explicit user action) is allowed.
+    expect(controller.canStartNormalRequest(id)).toBe(true);
+  });
+});

@@ -20,6 +20,7 @@ import {
   PendingStoreError,
   RecoveryNotPermittedError,
   RequestCoordinator,
+  isLateReply,
   type PendingRequestStatus,
   type RequestOutcome,
   type Sleep,
@@ -541,6 +542,11 @@ export class WorkspaceV2Controller {
       this.applyResult(threadId, outcome.result);
       return;
     }
+    // A late answer about a request the user already replaced must not overwrite the newer request's state.
+    if (outcome.record.status === "superseded") {
+      this.setRequest(threadId, {});
+      return;
+    }
     if (outcome.kind === "unknown") {
       this.setRequest(threadId, {
         phase: "unknown",
@@ -553,10 +559,16 @@ export class WorkspaceV2Controller {
   }
 
   private applyResult(threadId: string, result: MessageResult, options: { fromReconcile?: boolean } = {}) {
-    this.latest.set(threadId, result);
-    const execution = presentExecution(result);
     const items = [presentThreadMessage(result.user_message), ...(result.assistant_message ? [presentThreadMessage(result.assistant_message)] : [])];
     this.setDetail(threadId, (d) => ({ status: d.status === "loading" ? "ready" : d.status, messages: mergeMessages(d.messages, items) }));
+    // Late reply about an earlier request: its messages go into the history, but it never becomes the thread's
+    // current request state (no state overwrite, no polling, no in-flight change).
+    if (isLateReply(this.latest.get(threadId), result)) {
+      this.setRequest(threadId, {});
+      return;
+    }
+    this.latest.set(threadId, result);
+    const execution = presentExecution(result);
     const waiting = result.state === "pending" || result.state === "running";
     const fenced = this.coordinator.unresolvedRequests(threadId).filter((r) => r.requestKey !== result.user_message.request_key);
     this.setRequest(threadId, {

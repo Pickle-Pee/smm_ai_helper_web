@@ -115,8 +115,19 @@ export function WorkspaceView() {
   const project = projectView?.project ?? null;
   const notFound = viewStatus === "ready" && !isNew && !!threadId && detail?.status === "not_found";
   const listItems: ThreadListItem[] = useMemo(
-    () => threads.map((t) => ({ id: t.id, title: t.title, projectId: t.projectId, updatedAt: t.updatedAt, busy: !!t.inFlight })),
-    [threads],
+    () =>
+      threads.map((t) => {
+        const request = state.details[t.id]?.request;
+        const unresolved = request?.phase === "unknown" || request?.execution?.status === "ambiguous";
+        return {
+          id: t.id,
+          title: t.title,
+          projectId: t.projectId,
+          updatedAt: t.updatedAt,
+          requestState: unresolved ? ("unresolved" as const) : t.inFlight ? ("running" as const) : null,
+        };
+      }),
+    [threads, state.details],
   );
   const listProjects = useMemo(() => state.projects.map((p) => ({ id: p.project.id, name: p.project.name, color: p.project.color })), [state.projects]);
 

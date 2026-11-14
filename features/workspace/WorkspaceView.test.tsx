@@ -346,3 +346,48 @@ describe("AI Workspace on Web API v2 fixtures", () => {
     expect(submit).not.toHaveBeenCalled();
   });
 });
+
+describe("request state visibility", () => {
+  it("429 quota: explained with the reset time, nothing admitted, sending stays possible", async () => {
+    const { submit, api } = renderWorkspace("/workspace?new=1");
+    await sendNew("Разработай стратегию", "quota_exceeded");
+    const status = await screen.findByRole("region", { name: "Состояние запроса" });
+    await waitFor(() => expect(status.getAttribute("data-phase")).toBe("rejected"));
+    expect(within(status).getByText("Запрос не принят")).toBeTruthy();
+    expect(within(status).getByText(/Достигнут дневной лимит генераций\. Ничего не было запущено\./)).toBeTruthy();
+    expect(within(status).getByText(/Лимит обновится/)).toBeTruthy();
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(api.stats.simulatedCoreAdmissions).toBe(0);
+    fireEvent.change(composer(), { target: { value: "Позже" } });
+    expect((sendButton() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("unconfirmed outcome: thread is marked in the history list and support details appear only then", async () => {
+    renderWorkspace("/workspace?new=1", { readOutages: 1 });
+    const id = await sendNew("Рассчитай лиды", "unavailable_after_admission");
+    const status = await screen.findByRole("region", { name: "Состояние запроса" });
+    await waitFor(() => expect(status.getAttribute("data-phase")).toBe("unknown"));
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/workspace?thread=${id}`)!;
+    expect(within(link).getByText("Исход запроса не подтверждён")).toBeTruthy();
+    expect(within(status).getByText("Данные для поддержки")).toBeTruthy();
+
+    fireEvent.click(within(status).getByRole("button", { name: "Проверить статус" }));
+    await screen.findByRole("article", { name: "Расчёт" });
+    expect(within(link).queryByText("Исход запроса не подтверждён")).toBeNull();
+    expect(screen.queryByText("Данные для поддержки")).toBeNull();
+  });
+
+  it("a running request shows progress without technical identifiers", async () => {
+    const neverEnding: Sleep = (_ms, signal) =>
+      new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))));
+    const { controller } = renderWorkspace("/workspace?new=1", { pollsUntilDone: 10 }, { sleep: neverEnding });
+    const id = await sendNew("Разработай стратегию", "workflow");
+    const status = await screen.findByRole("region", { name: "Состояние запроса" });
+    await waitFor(() => expect(status.getAttribute("data-state")).toBe("running"));
+    expect(within(status).queryByText("Данные для поддержки")).toBeNull();
+    expect(status.textContent).not.toMatch(/w-[0-9a-f]{8}-/);
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/workspace?thread=${id}`)!;
+    expect(within(link).getByText("Запрос выполняется")).toBeTruthy();
+    controller.dispose();
+  });
+});

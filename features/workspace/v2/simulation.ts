@@ -17,6 +17,7 @@ export const FIXTURE_ANSWERS: { id: SubmitScenario; label: string }[] = [
   { id: "unsupported", label: "Свободный вопрос — не поддерживается" },
   { id: "unavailable_after_admission", label: "Сбой связи 503, запрос принят" },
   { id: "unavailable_before_admission", label: "Сбой связи 503, записи нет (404)" },
+  { id: "rate_limited", label: "Слишком много запросов (429)" },
   { id: "quota_exceeded", label: "Дневной лимит исчерпан (429)" },
 ];
 

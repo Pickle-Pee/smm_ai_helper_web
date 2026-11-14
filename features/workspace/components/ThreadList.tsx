@@ -18,9 +18,14 @@ export interface ThreadListItem {
   title: string;
   projectId: ID | null;
   updatedAt: string;
-  /** A request of this thread is pending/running on the server. */
-  busy?: boolean;
+  /**
+   * `running`: a request is pending/running on the server. `unresolved`: the outcome of the latest request is not
+   * confirmed (unknown after a lost response, or `ambiguous`) — sending in the thread is blocked until resolved.
+   */
+  requestState?: "running" | "unresolved" | null;
 }
+
+const REQUEST_STATE_TEXT = { running: "Запрос выполняется", unresolved: "Исход запроса не подтверждён" } as const;
 
 export interface ThreadListProject {
   id: ID;
@@ -147,9 +152,13 @@ export function ThreadList({
                           )}
                           <span className={styles.threadTime}>{now ? formatRelative(t.updatedAt, now) : ""}</span>
                         </span>
-                        {t.busy && (
-                          <span className={styles.reviewDot} title="Запрос выполняется">
-                            <span className="sr-only">Запрос выполняется</span>
+                        {t.requestState && (
+                          <span
+                            className={cx(styles.reviewDot, t.requestState === "unresolved" && styles.attentionDot)}
+                            title={REQUEST_STATE_TEXT[t.requestState]}
+                            data-request-state={t.requestState}
+                          >
+                            <span className="sr-only">{REQUEST_STATE_TEXT[t.requestState]}</span>
                           </span>
                         )}
                       </Link>

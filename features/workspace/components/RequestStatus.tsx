@@ -17,6 +17,14 @@ const TONE: Record<string, BadgeTone> = {
   danger: "danger",
 };
 
+const RECORD_STATUS: Record<ThreadRequestView["fencedKeys"][number]["status"], string> = {
+  sending: "отправка не подтверждена",
+  accepted: "принят сервером",
+  unresolved: "исход не подтверждён",
+  rejected: "отклонён",
+  superseded: "заменён новым запросом",
+};
+
 export interface RequestStatusActions {
   onCheckStatus: () => void;
   onStopWaiting: () => void;
@@ -111,13 +119,14 @@ export function RequestStatus({ request, canAct, actions }: { request: ThreadReq
           </Button>
         )}
       </div>
-      {request.fencedKeys.length > 0 && (
+      {/* Technical identifiers only where support may need them: an outcome that is not confirmed. */}
+      {phase === "unknown" && request.fencedKeys.length > 0 && (
         <details className={styles.diagnostics}>
-          <summary>Для поддержки</summary>
+          <summary>Данные для поддержки</summary>
           <ul>
             {request.fencedKeys.map((k) => (
               <li key={k.requestKey}>
-                <code>{k.requestKey}</code> · версия {k.revision} · {k.status}
+                <code>{k.requestKey}</code> · версия {k.revision} · {RECORD_STATUS[k.status]}
               </li>
             ))}
           </ul>

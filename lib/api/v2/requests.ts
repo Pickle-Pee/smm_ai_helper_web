@@ -566,7 +566,9 @@ export class RequestCoordinator {
   }
 
   private observe(result: MessageResult) {
-    this.lastState.set(result.thread_id, result);
+    // A late reply about an earlier request (lower `seq`) never replaces the state of a newer one, so it cannot
+    // lift the "one in-flight request per thread" guard. It still resolves its own stored record below.
+    if (!isLateReply(this.lastState.get(result.thread_id), result)) this.lastState.set(result.thread_id, result);
     const key = result.user_message.request_key;
     if (DURABLE_STATES.has(result.state)) {
       this.store.delete(key);
@@ -576,6 +578,14 @@ export class RequestCoordinator {
       if (current && current.status !== "superseded") this.setStatus(key, "accepted");
     }
   }
+}
+
+/**
+ * True when `next` reports an EARLIER request revision than `current` (server-assigned, per-thread monotonic
+ * `user_message.seq`): e.g. a slow recovery read of a superseded key arriving after a new request started.
+ */
+export function isLateReply(current: MessageResult | undefined, next: MessageResult): boolean {
+  return !!current && current.thread_id === next.thread_id && next.user_message.seq < current.user_message.seq;
 }
 
 function toWebApiError(error: unknown): WebApiError {
