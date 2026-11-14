@@ -121,6 +121,8 @@ ids (`p-…`, `t-…`) are never mapped:
   selected brand, else the first active project. A draft/link id that does not resolve (legacy, foreign, unknown)
   leaves the project selector **empty** with a notice; nothing can be sent until the user picks a project;
 * a draft keeps its text, scenario and origin («Черновик из раздела …»); it is never sent automatically;
+* the project is re-decided whenever the route (`?new=1&project=…` or `?thread=…`) changes, also without a remount
+  (links within the Workspace, Back/Forward); a manual pick is kept within the same route;
 * `/workspace?thread=t-…` (old links) shows «Этот диалог из старого демо-набора»;
 * unknown fixture ids show «Диалог не найден».
 

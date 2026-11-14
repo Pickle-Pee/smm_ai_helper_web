@@ -61,8 +61,13 @@ export function WorkspaceView() {
   const [draftScenario, setDraftScenario] = useState<ScenarioId | null>(null);
   const [fixtureAnswer, setFixtureAnswer] = useState<SubmitScenario>("direct_result");
   const [projectNotice, setProjectNotice] = useState<string | null>(null);
-  /** A draft or deep link already decided this conversation's project (even if it decided "none"). */
-  const [contextDecided, setContextDecided] = useState(false);
+  /**
+   * The route (see `routeKey`) whose project context was last applied by a draft, a deep link or the default. The
+   * Workspace page stays mounted across search-param-only navigation (links, Back/Forward), so the project is
+   * re-decided whenever the route key changes — never only once per mount — while a manual pick within the same
+   * route is kept.
+   */
+  const [decidedRouteKey, setDecidedRouteKey] = useState<string | null>(null);
   const [draftOrigin, setDraftOrigin] = useState<{ label: string; href: string } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -77,6 +82,8 @@ export function WorkspaceView() {
   const requestedId = params.get("thread");
   const isNew = params.get("new") === "1";
   const urlProjectId = isNew ? params.get("project") : null;
+  // Identity of the navigation context: a new conversation (with its explicit project, if any) or a thread link.
+  const routeKey = isNew ? `new:${urlProjectId ?? ""}` : `thread:${requestedId ?? ""}`;
   const threadId: string | null = isNew ? null : (requestedId ?? threads[0]?.id ?? null);
   const summary = threadId ? (state.threads.find((t) => t.id === threadId) ?? null) : null;
   const detail: ThreadDetailView | null = threadId ? (state.details[threadId] ?? null) : null;
@@ -99,7 +106,8 @@ export function WorkspaceView() {
     setDraftScenario(scenarioId);
     setFixtureAnswer(defaultFixtureAnswer(scenarioId));
     setDraftOrigin(origin ?? null);
-    setContextDecided(true);
+    // The draft outranks the route's own project for the route it arrived on.
+    setDecidedRouteKey(routeKey);
     if (projectId && controller.projectById(projectId)) {
       setDraftProjectId(projectId);
       setProjectNotice(null);
@@ -110,34 +118,48 @@ export function WorkspaceView() {
     }
     legacy.consumeDraft();
     requestAnimationFrame(() => composerRef.current?.focus());
-  }, [legacy, legacyProjects, ready, controller, selectProject]);
+  }, [legacy, legacyProjects, ready, controller, selectProject, routeKey]);
 
-  // Deep link `/workspace?new=1&project=<id>`: the exact project, or an empty selector with a notice.
+  // A thread route needs no project decision; leaving it means the next new-conversation route is decided afresh
+  // (e.g. `?new=1&project=A` → thread → Back to `?new=1&project=A` applies A again).
   useEffect(() => {
-    if (!urlProjectId || !ready || !controller || legacy.pendingDraft || contextDecided) return;
-    setContextDecided(true);
-    if (controller.projectById(urlProjectId)) {
-      setDraftProjectId(urlProjectId);
-      setProjectNotice(null);
-      selectProject(urlProjectId);
-    } else {
-      setDraftProjectId(null);
-      setProjectNotice(unresolvedProjectNotice(urlProjectId, legacyProjects.get(urlProjectId)?.name ?? null));
+    if (!isNew) setDecidedRouteKey(routeKey);
+  }, [isNew, routeKey]);
+
+  // Project of a new conversation, re-decided on every route change (also without a remount):
+  // `?new=1&project=<id>` → exactly that project, or an EMPTY selector with a notice (never a fallback);
+  // `?new=1` → the session's selected brand (a stale one only gets a notice), else the first active project.
+  // A pending draft is applied first (effect above). Nothing here sends anything.
+  useEffect(() => {
+    if (!isNew || !ready || !controller || legacy.pendingDraft || decidedRouteKey === routeKey) return;
+    setDecidedRouteKey(routeKey);
+    // A draft's origin belonged to the route it arrived on.
+    setDraftOrigin(null);
+    if (urlProjectId) {
+      if (controller.projectById(urlProjectId)) {
+        setDraftProjectId(urlProjectId);
+        setProjectNotice(null);
+        selectProject(urlProjectId);
+      } else {
+        setDraftProjectId(null);
+        setProjectNotice(unresolvedProjectNotice(urlProjectId, legacyProjects.get(urlProjectId)?.name ?? null));
+      }
+      return;
     }
-  }, [urlProjectId, ready, controller, legacy.pendingDraft, contextDecided, legacyProjects, selectProject]);
-
-  // Default project for a fresh new conversation: the session's selected brand, else the first active project.
-  // A selected brand that no longer resolves is NOT replaced by another one.
-  useEffect(() => {
-    if (!isNew || !ready || draftProjectId || projectNotice || legacy.pendingDraft || contextDecided || urlProjectId) return;
     if (selectedProjectId) {
-      if (selectedProject) setDraftProjectId(selectedProject.project.id);
-      else setProjectNotice(unresolvedProjectNotice(selectedProjectId, legacyProjects.get(selectedProjectId)?.name ?? null));
+      if (selectedProject) {
+        setDraftProjectId(selectedProject.project.id);
+        setProjectNotice(null);
+      } else {
+        setDraftProjectId(null);
+        setProjectNotice(unresolvedProjectNotice(selectedProjectId, legacyProjects.get(selectedProjectId)?.name ?? null));
+      }
       return;
     }
     const first = state.projects.find((p) => p.project.status === "active");
-    if (first) setDraftProjectId(first.project.id);
-  }, [isNew, ready, draftProjectId, projectNotice, legacy.pendingDraft, contextDecided, urlProjectId, selectedProjectId, selectedProject, legacyProjects, state.projects]);
+    setDraftProjectId(first?.project.id ?? null);
+    setProjectNotice(null);
+  }, [isNew, ready, controller, legacy.pendingDraft, decidedRouteKey, routeKey, urlProjectId, selectedProjectId, selectedProject, legacyProjects, state.projects, selectProject]);
 
   const projectId = summary ? summary.projectId : draftProjectId;
 
@@ -172,9 +194,14 @@ export function WorkspaceView() {
     setDraftScenario(null);
     setProjectNotice(null);
     setDraftOrigin(null);
-    setContextDecided(false);
-    // A new conversation from an open thread stays in that thread's project.
-    if (summary) setDraftProjectId(summary.projectId);
+    if (summary) {
+      // A new conversation from an open thread stays in that thread's project.
+      setDraftProjectId(summary.projectId);
+      setDecidedRouteKey("new:");
+    } else {
+      // Re-decide for the target route (also when it is the current one).
+      setDecidedRouteKey(null);
+    }
     setHistoryOpen(false);
     router.push("/workspace?new=1", { scroll: false });
     requestAnimationFrame(() => composerRef.current?.focus());

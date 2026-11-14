@@ -24,10 +24,24 @@ import { ProjectDetailView } from "./ProjectDetailView";
 /* ---------- next/navigation + next/link: one in-memory router ---------- */
 const nav = vi.hoisted(() => {
   let url = "/";
+  // Browser history: push appends, replace swaps the current entry, back/forward move within it.
+  let entries: string[] = ["/"];
+  let index = 0;
   const listeners = new Set<() => void>();
-  const go = (next: string) => {
-    url = next.startsWith("/") ? next : `/${next}`;
+  const show = (next: string) => {
+    url = next;
     listeners.forEach((l) => l());
+  };
+  const go = (next: string) => {
+    const target = next.startsWith("/") ? next : `/${next}`;
+    entries = [...entries.slice(0, index + 1), target];
+    index = entries.length - 1;
+    show(target);
+  };
+  const replace = (next: string) => {
+    const target = next.startsWith("/") ? next : `/${next}`;
+    entries[index] = target;
+    show(target);
   };
   return {
     get url() {
@@ -41,13 +55,25 @@ const nav = vi.hoisted(() => {
     },
     set(next: string) {
       url = next;
+      entries = [next];
+      index = 0;
     },
     go,
     subscribe(l: () => void) {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    router: { push: vi.fn((u: string) => go(u)), replace: vi.fn((u: string) => go(u)), back: vi.fn(), prefetch: vi.fn() },
+    router: {
+      push: vi.fn((u: string) => go(u)),
+      replace: vi.fn((u: string) => replace(u)),
+      back: vi.fn(() => {
+        if (index > 0) show(entries[--index]);
+      }),
+      forward: vi.fn(() => {
+        if (index < entries.length - 1) show(entries[++index]);
+      }),
+      prefetch: vi.fn(),
+    },
   };
 });
 
@@ -374,6 +400,103 @@ describe("missing, foreign and stale ids", () => {
     fireEvent.change(search, { target: { value: "Little Feet" } });
     expect(await screen.findByText("Документы (демо-набор)")).toBeTruthy();
     expect(screen.queryByText("Copilot-диалоги", { selector: "div" })).toBeNull();
+  });
+});
+
+describe("same-page route changes (the Workspace stays mounted)", () => {
+  const newUrl = (projectId: string) => `/workspace?new=1&project=${projectId}`;
+  const notice = () => screen.queryByText(/не найден в тестовых данных Web API v2 или у вас нет к нему доступа/);
+
+  it("A → B → foreign → A re-decides the project on every link; the wrong or old project is never used", async () => {
+    const { createThread, submit } = renderApp(newUrl(ZERNO));
+    await workspaceReady();
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    const box = composer();
+    fireEvent.change(box, { target: { value: "Подготовь пост" } });
+
+    act(() => nav.router.push(newUrl(GLINA)));
+    await waitFor(() => expect(projectSelect().value).toBe(GLINA));
+    expect(composer()).toBe(box); // same mounted page, not a remount
+    expect(notice()).toBeNull();
+
+    act(() => nav.router.push(newUrl(FIXTURE_IDS.foreignProjectId)));
+    await waitFor(() => expect(projectSelect().value).toBe(""));
+    expect(notice()).toBeTruthy();
+    expect(sendButton().disabled).toBe(true);
+
+    act(() => nav.router.push(newUrl(ZERNO)));
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    expect(notice()).toBeNull();
+    expect(composer()).toBe(box);
+    expect(createThread).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+
+    // Only the user's click sends — into the project the current URL names.
+    expect(sendButton().disabled).toBe(false);
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+    expect(createThread).toHaveBeenCalledWith(ZERNO, expect.objectContaining({ kind: "copilot" }), expect.anything());
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+  });
+
+  it("Back and Forward re-apply each entry's project; a manual pick stays within its route", async () => {
+    const { createThread } = renderApp(newUrl(ZERNO));
+    await workspaceReady();
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+
+    act(() => nav.router.push(newUrl(GLINA)));
+    await waitFor(() => expect(projectSelect().value).toBe(GLINA));
+
+    // A manual pick inside the current route is not overwritten while the route stays the same.
+    fireEvent.change(projectSelect(), { target: { value: ZERNO } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(projectSelect().value).toBe(ZERNO);
+
+    act(() => nav.router.push(newUrl(FIXTURE_IDS.foreignProjectId)));
+    await waitFor(() => expect(projectSelect().value).toBe(""));
+
+    act(() => nav.router.back());
+    await waitFor(() => expect(projectSelect().value).toBe(GLINA));
+    expect(notice()).toBeNull();
+    act(() => nav.router.back());
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    act(() => nav.router.forward());
+    await waitFor(() => expect(projectSelect().value).toBe(GLINA));
+    act(() => nav.router.forward());
+    await waitFor(() => expect(projectSelect().value).toBe(""));
+    expect(notice()).toBeTruthy();
+    expect(sendButton().disabled).toBe(true);
+    expect(createThread).not.toHaveBeenCalled();
+  });
+
+  it("thread → new conversation with an explicit different project uses that project, not the thread's", async () => {
+    // A decided new-conversation route first, then a thread of that project, then a link to another project.
+    const { createThread, submit } = renderApp(newUrl(ZERNO));
+    await workspaceReady();
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    act(() => nav.router.push(`/workspace?thread=${FIXTURE_IDS.directThreadId}`));
+    expect(await screen.findByRole("heading", { level: 1, name: "Расчёт лидов" })).toBeTruthy();
+    expect(projectSelect().value).toBe(ZERNO);
+
+    act(() => nav.router.push(newUrl(GLINA)));
+    await waitFor(() => expect(projectSelect().value).toBe(GLINA));
+    expect(screen.getByRole("heading", { level: 1, name: "Новый диалог" })).toBeTruthy();
+    fireEvent.change(composer(), { target: { value: "Посчитай лиды" } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(createThread).toHaveBeenCalledTimes(1));
+    expect(createThread).toHaveBeenCalledWith(GLINA, expect.objectContaining({ kind: "copilot" }), expect.anything());
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+    // Send replaced the new-conversation entry with the new thread; Back returns to the first thread, then to the
+    // first link — each with its own project again, nothing re-sent.
+    act(() => nav.router.back());
+    await waitFor(() => expect(nav.url).toBe(`/workspace?thread=${FIXTURE_IDS.directThreadId}`));
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    act(() => nav.router.back());
+    await waitFor(() => expect(nav.url).toBe(newUrl(ZERNO)));
+    await waitFor(() => expect(projectSelect().value).toBe(ZERNO));
+    expect(createThread).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 });
 

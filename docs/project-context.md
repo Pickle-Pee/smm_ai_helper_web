@@ -77,6 +77,12 @@ Workspace project resolution for `?new=1`: draft → `?project=` → selected br
 link id that does not resolve leaves the selector **empty** with a notice; sending is blocked until the user picks.
 A draft is never sent automatically; the Workspace shows «Черновик из раздела … Ничего не отправлено».
 
+The Workspace page stays mounted across search-param-only navigation (links within `/workspace`, Back/Forward), so
+the project is decided **per route**, not once per mount: the route key is `new:<project>` or `thread:<id>`, and every
+change of it re-applies the rules above (`?project=A` → `?project=B` → B; → foreign id → empty selector, sending
+blocked; → `?project=A` → A). A manual pick is kept while the route stays the same; a pending draft still outranks the
+route it arrived on.
+
 Stale links: `/projects/<unknown|foreign>` → «Проект не найден»; `/projects/p-…` → «Этот проект из старого
 демо-набора»; `/workspace?thread=t-…` → «Этот диалог из старого демо-набора»; unknown thread UUID → «Диалог не
 найден». Search lists only fixture threads, so it cannot link to a phantom thread.
@@ -125,7 +131,7 @@ and increments the revision; `mode.ts` stays fixture-only; no `/api/v2` calls; e
 
 | Area | File |
 | --- | --- |
-| Same project ids on Dashboard / sidebar / Projects / Workspace; one transport and one controller start; Dashboard → project page → Workspace; project page threads; Briefing draft handoff (text, brand, scenario, origin, no auto-send, then one confirmed request in that project); brand kept across sections; active request survives navigation (same key, one POST); unknown / foreign / legacy ids; missing project in a Workspace link; stale thread links and search; viewer read-only; project isolation; no create/edit, no form, Documents not linked; no network on a full walk; real `AppProviders` share one fixture instance | `features/projects/unified-context.test.tsx` |
+| Same project ids on Dashboard / sidebar / Projects / Workspace; one transport and one controller start; Dashboard → project page → Workspace; same-page route changes without remount (A → B → foreign → A, Back/Forward, thread → new with another project); project page threads; Briefing draft handoff (text, brand, scenario, origin, no auto-send, then one confirmed request in that project); brand kept across sections; active request survives navigation (same key, one POST); unknown / foreign / legacy ids; missing project in a Workspace link; stale thread links and search; viewer read-only; project isolation; no create/edit, no form, Documents not linked; no network on a full walk; real `AppProviders` share one fixture instance | `features/projects/unified-context.test.tsx` |
 | `loadProject` (ready, 404, brand failure, dedupe, viewer), `presentProjectBrand` | `features/workspace/v2/project-reads.test.ts` |
 | Screens never read legacy projects/threads; one fixture transport; data hook never stops polls; no local project writes | `features/projects/source-policy.test.ts` |
 
