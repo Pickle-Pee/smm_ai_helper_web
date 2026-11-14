@@ -23,12 +23,40 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
+      - name: Generated Web API v2 types match docs/api/web-api-v2.openapi.yaml
+        run: npm run check:api
       - run: npm test
       - name: Shell scripts (syntax + shellcheck)
         run: |
           for f in deploy/bin/*.sh scripts/*.sh; do bash -n "$f"; done
           shellcheck -S warning deploy/bin/*.sh scripts/*.sh
       - run: npm run build
+
+  contract:
+    name: Web API v2 contract (C0)
+    runs-on: ubuntu-latest
+    env:
+      # Backend baseline the `existing` DTOs were projected from (info.x-backend-baseline). Read-only.
+      BACKEND_BASELINE: 76b6c1b5a69877cd6029397e4e13db36070ad039
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/api/tools/requirements.txt
+      - run: pip install -r docs/api/tools/requirements.txt
+      - name: OpenAPI 3.1, $refs, fixtures, golden cases, cache headers
+        run: python docs/api/tools/check_contract.py
+      - name: Backend source (read-only, pinned baseline)
+        uses: actions/checkout@v4
+        with:
+          repository: Pickle-Pee/smm_ai_helper
+          ref: ${{ env.BACKEND_BASELINE }}
+          path: .backend-baseline
+          persist-credentials: false
+      - name: Existing DTOs and fixture payloads against the real backend models
+        run: python docs/api/tools/check_contract.py --backend-repo .backend-baseline --backend-ref "$BACKEND_BASELINE"
 
   docker:
     name: docker image + smoke

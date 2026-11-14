@@ -18,9 +18,10 @@ Open http://localhost:3000.
 Checks:
 
 ```bash
-npm run lint   # TypeScript type-check
-npm test       # Vitest: reducers, selectors, formatting, UI primitives
-npm run build  # standalone output (.next/standalone)
+npm run lint        # TypeScript type-check
+npm run check:api   # generated Web API v2 types match docs/api/web-api-v2.openapi.yaml
+npm test            # Vitest: reducers, selectors, UI primitives, Web API v2 client/fixtures/recovery
+npm run build       # standalone output (.next/standalone)
 ```
 
 Production image and smoke test:
@@ -41,7 +42,7 @@ Build-time settings are listed in `.env.example`; none are secrets. Deployment, 
 | `/workspace` | AI Workspace: conversation history, brand selector, marketing scenarios, structured results (metrics, stages, tables, checklists), brand context panel |
 | `/projects`, `/projects/[id]` | Projects & brands: grid/table, filters, create/edit business context, work history, brand documents |
 | `/documents` | Document Workspace: type tabs, filters, favourites, schematic previews, templates |
-| `/settings` | Profile & workspace (local), demo state switcher, clearly locked team/billing/integrations/security |
+| `/settings` | Profile & workspace (local), demo state switcher, «Web API v2 · примеры» (contract walkthrough on test data), clearly locked team/billing/integrations/security |
 
 **Important:** This is a frontend prototype, not a production application. It has no account system, durable storage, payments, or live AI access. Messages typed in the AI Workspace are kept in the current tab and labelled «AI не подключён». The demo project names and document entries are fictional examples.
 
@@ -54,9 +55,13 @@ app/                 routes (App Router); (app)/layout.tsx wraps pages in the sh
 components/ui/       design-system primitives (Button, Badge, Card, Form, Tabs, Dialog, States, …)
 components/shell/    sidebar, topbar, mobile tab bar, global search
 features/<feature>/  model.ts (pure reducer + selectors, tested), store.tsx (provider), views and components
-lib/api/             typed API contracts, mock adapter, ApiProvider (single integration point)
+lib/api/             UI read contracts, mock adapter, ApiProvider (single integration point)
+lib/api/generated/   Web API v2 types generated from docs/api/web-api-v2.openapi.yaml (do not edit)
+lib/api/v2/          Web API v2: HTTP client (not connected), fixture client, request lifecycle, DTO → UI mappers
 lib/mock/            fictional demo dataset
 styles/tokens.css    design tokens
+docs/api/               Web API v2 contract (C0): OpenAPI, fixtures, decision register, checker
+docs/api-client.md      Web API v2 client (F1): mock vs HTTP, generation, tests, switch-on prerequisites
 docs/design-system.md  design concept, palette, typography, components
 docs/operations.md     deployment, update, rollback, monitoring runbook
 deploy/                server compose files, Caddyfile, deploy/rollback/health scripts
@@ -65,8 +70,10 @@ scripts/smoke.sh       smoke test used by CI and after deploys
 
 ## Integration policy
 
-The backend lives in [smm_ai_helper](https://github.com/Pickle-Pee/smm_ai_helper). Access backend functionality only through future authenticated/versioned API contracts. Never ship `BOT_BACKEND_TOKEN`, Telegram actor headers, provider keys, or other service credentials in browser bundles. Replace the mock adapter in `lib/api/provider.tsx` with an HTTP client implementing `ApiClient` — components read data only through feature hooks.
+The backend lives in [smm_ai_helper](https://github.com/Pickle-Pee/smm_ai_helper). Access backend functionality only through the authenticated, versioned Web API v2 ([contract](docs/api/README.md), proposed — not implemented in the backend yet). Never ship `BOT_BACKEND_TOKEN`, Telegram actor headers, provider keys, or other service credentials in browser bundles.
+
+**F1 (current): mock-only.** The typed `WebApiV2Client` (same-origin `/api/v2`, cookie session, CSRF, typed errors) is implemented and tested with a fake `fetch`, but the app can only select the fixture transport (`lib/api/v2/mode.ts`): no request goes to `/api/v2`, no AI is called, and any example content is labelled «Пример из тестовых данных». Switching HTTP on is a separate reviewed step with backend, auth, edge and security prerequisites — see **[docs/api-client.md](docs/api-client.md)**.
 
 ## Project tracking
 
-Product epic: [SaaS Platform #158](https://github.com/Pickle-Pee/smm_ai_helper/issues/158) · Frontend task: [#163](https://github.com/Pickle-Pee/smm_ai_helper/issues/163) · AI Workspace: [#164](https://github.com/Pickle-Pee/smm_ai_helper/issues/164) · Documents: [#167](https://github.com/Pickle-Pee/smm_ai_helper/issues/167) · Design: [#2](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/2).
+Product epic: [SaaS Platform #158](https://github.com/Pickle-Pee/smm_ai_helper/issues/158) · Web API v2: [architecture #6](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/6), [contract #7](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/7), [client F1 #9](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/9) · Frontend task: [#163](https://github.com/Pickle-Pee/smm_ai_helper/issues/163) · AI Workspace: [#164](https://github.com/Pickle-Pee/smm_ai_helper/issues/164) · Documents: [#167](https://github.com/Pickle-Pee/smm_ai_helper/issues/167) · Design: [#2](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/2).
