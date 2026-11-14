@@ -74,6 +74,7 @@ and presenters → commit YAML and generated files together.
 | Errors | contract `ErrorResponse` → `kind: "http"` with `code`, `status`, `requestId` (body or `X-Request-ID`), `retryAfterSeconds` (body or `Retry-After`), `quota` |
 | Reverse proxy | non-JSON / foreign bodies → `kind: "edge"`, classified by status only: 5xx (HTML/empty 502, 504, text 503) → `temporarily_unavailable`; 413 → `payload_too_large` |
 | 401 | drops the CSRF token and calls `onUnauthenticated` |
+| Success bodies | a 2xx JSON body must be a /v2 envelope: an object with `schema_version: "web_api.v2"`, or for `getMessageResult` a snapshot object (`envelope_version: 1`, string `result_kind`). Anything else (`{}`-like foreign JSON, arrays, HTML) → `invalid_response`, which is an unknown outcome (recover by key, never resend). Not a full schema validator |
 | Retries | none, except the single CSRF repeat. `WebApiError.outcomeUnknown` tells callers to *read* the state |
 
 ## 4. `FixtureWebApiV2Client` (the app's only transport)
@@ -105,16 +106,30 @@ re-bound to the ids/key/revision of the simulated request). It never calls a mod
 3. **Unknown outcome** (network, timeout, edge 5xx, `503`): read-only `getRequestByKey`. **No second POST.**
 4. **`404` on recovery** → `unknown / no_visible_record`. Not proof that the model did not run (C0 fix): nothing is
    resent; only an explicit new request is possible.
-5. **`resubmitSameKey`** only with the server's own `next_action: "resubmit_same_key"` for that key/revision, with
+5. **Unresolved fence (per thread).** Each stored record has a status: `sending` → `accepted` (server reported
+   `pending`/`running`) / `unresolved` (POST outcome unknown and recovery returned `404`, `503`, a network error or
+   any other failed read) / `rejected` (definitive pre-admission rejection: `409`, `403`, `422`, `429`, `401`) /
+   `superseded`. While a thread has a `sending`, `unresolved` or `accepted` record, `submitNew` throws
+   `LocalSubmitGuardError("unresolved_request")` and sends nothing. The same holds after a server-recorded
+   `ambiguous` or `expired` outcome. The fence is lifted only by a successful recovery read that reaches a durable
+   state, or by the acknowledged `startNewRequest`, which marks the earlier keys `superseded` with `supersededBy`
+   (kept in the store and still recoverable by key — never silently dropped). Same-key continuations
+   (clarification, server-permitted resubmit) of the fenced key itself remain possible.
+6. **`resubmitSameKey`** only with the server's own `next_action: "resubmit_same_key"` for that key/revision, with
    the identical stored payload (or the server's accepted `input` on another device).
-6. **Clarification:** same key, `revision + 1`, same `message`, accepted input extended with the answer.
-7. **New key** only via `startNewRequest(..., { acknowledgeMayRegenerate: true })` — an explicit, warned user action
+7. **Clarification:** same key, `revision + 1`, same `message`, accepted input extended with the answer.
+8. **New key** only via `startNewRequest(..., { acknowledgeMayRegenerate: true })` — an explicit, warned user action
    after `ambiguous`, `expired`, an overdue run or an unknown outcome.
-8. **Polling:** `getMessage` every `poll_after_ms` while `next_action === "poll"`; `503` → wait `Retry-After` and
+9. **Polling:** `getMessage` every `poll_after_ms` while `next_action === "poll"`; `503` → wait `Retry-After` and
    re-read; cancellable via `AbortSignal`; never stops or changes state because of elapsed time. After a reload,
    `followInFlight(thread)` reads `Thread.in_flight` instead of submitting again.
-9. `429 rate_limited` / `quota_exceeded` are returned as `rejected` and never retried automatically (the contract
-   would allow one bounded `rate_limited` retry; F1 leaves it to an explicit user action).
+10. `429 rate_limited` / `quota_exceeded` are returned as `rejected` and never retried automatically (the contract
+    would allow one bounded `rate_limited` retry; F1 leaves it to an explicit user action). A rejection does not
+    fence the thread: nothing was admitted.
+
+**F1 limitation (hard blocker for HTTP).** The default `MemoryPendingRequestStore` lives in the tab: a reload or a
+second tab loses the fence. Before HTTP is switched on, the store must be durable (IndexedDB, cleared on logout) and
+recovery after reload must combine it with the server's `Thread.in_flight` (§9, item 4).
 
 ## 6. Result presentation
 
@@ -130,8 +145,8 @@ lists, callouts); a FUTURE `CHAT_REPLY` is `not_presentable`.
 | Area | File |
 | --- | --- |
 | Codegen drift + metadata vs YAML; mock-only mode; no network; source policy (no HTTP-client import, no `/api/v2` literals, no secrets / Telegram identity headers) | `lib/api/v2/contract-safety.test.ts` |
-| HTTP client with fake `fetch`: URLs, cookie/CSRF policy, 401/403/404/409/422/429/503, edge HTML/empty 5xx, 413, network, timeout, abort, invalid responses, no submit retry | `lib/api/v2/http-client.test.ts` |
-| Idempotency, double submit, one in-flight per thread, `NEEDS_INPUT` revisions, 503 recovery, `404` ≠ proof, no auto re-call, stale pending (golden `pending-receipt-purged`), polling & cancel, `in_flight` after reload | `lib/api/v2/requests.test.ts` |
+| HTTP client with fake `fetch`: URLs, cookie/CSRF policy, 401/403/404/409/422/429/503, edge HTML/empty 5xx, 413, network, timeout, abort, success-envelope checks (`{foo:1}`, `[]`, snapshot), no submit retry | `lib/api/v2/http-client.test.ts` |
+| Idempotency, double submit, one in-flight per thread, unresolved fence (503+404, 503+503, failed read, ack override, `superseded` kept), `NEEDS_INPUT` revisions, 503 recovery, `404` ≠ proof, no auto re-call, stale pending (golden `pending-receipt-purged`), polling & cancel, `in_flight` after reload | `lib/api/v2/requests.test.ts` |
 | Fixture invariants, auth/org/project/brand, tenant `404`s, two viewers (`is_self`), viewer `403`, history reopen, snapshot failures | `lib/api/v2/fixture-client.test.ts` |
 | DTO → UI mappers, stored vs presentation separation, unavailable states, execution states, error texts, request keys | `lib/api/v2/presenters.test.ts` |
 | Every demo example runs without network; demo results are labelled; Settings panel states mock-only mode | `features/workspace/contract-demo/contract-demo.test.tsx` |
@@ -175,7 +190,9 @@ Nothing below is done in F1. The switch must be its own PR that changes `lib/api
    `__Host-brenvio_session` (HttpOnly, Secure, SameSite=Lax), CSRF, logout; no fake "logged in" UI before that.
 3. Edge F4: Caddy `handle /api/v2/*` → FastAPI `/v2/*` with body limit and 330 s timeout, `Cache-Control:
    private, no-store` on all responses including edge errors; no CDN caching; staging `caddy validate` + smoke.
-4. IndexedDB `PendingRequestStore` (stored before POST, cleared on logout), replacing the memory store.
+4. **Blocker:** durable IndexedDB `PendingRequestStore` (stored before POST, keeps record statuses including
+   `unresolved`/`superseded`, cleared on logout) replacing the memory store; on load, fenced threads are restored from
+   it and reconciled with `Thread.in_flight` before any new submit is allowed.
 5. Security testing: tenant isolation T1–T10 / O-T1–O-T5, CSRF/Origin checks, no secrets in bundles, rate limits
    and quotas, response caching smoke.
 6. Product/ops decisions from the decision register (OQ-1 re-import, OQ-4 topology, OQ-6 quotas, OQ-7 session
@@ -187,5 +204,6 @@ Nothing below is done in F1. The switch must be its own PR that changes `lib/api
 
 * README §3 says edge 413/502/504 may be non-JSON and are handled as `temporarily_unavailable`. The client maps a
   non-JSON **413** to `payload_too_large` (the request was rejected before the backend saw it, matching
-  `components/responses/PayloadTooLarge`); non-JSON 5xx map to `temporarily_unavailable`.
+  `components/responses/PayloadTooLarge`); non-JSON 5xx map to `temporarily_unavailable`. Tracked as a C0 docs
+  follow-up in [#11](https://github.com/Pickle-Pee/smm_ai_helper_web/issues/11); the contract is not changed here.
 * `rate_limited` allows one automatic identical retry by contract; F1 does not retry automatically (stricter).

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { WebApiError } from "./errors";
 import { FIXTURE_IDS, fixtures } from "./fixtures";
 import { FIXTURE_SERVER_NOW, FixtureWebApiV2Client, type FixtureClientOptions } from "./fixture-client";
 import { isRequestKey } from "./request-key";
@@ -163,8 +164,8 @@ describe("unknown outcomes never trigger a second AI call", () => {
     expect(outcome).toMatchObject({ kind: "unknown", reason: "no_visible_record", error: { status: 404, code: "not_found" } });
     expect(submit).toHaveBeenCalledTimes(1);
     expect(api.stats.simulatedCoreAdmissions).toBe(0);
-    // The local record stays for diagnostics but grants nothing: there is no server permission to resend.
-    expect(coordinator.store.list()).toHaveLength(1);
+    // The local record stays (unresolved) but grants nothing: there is no server permission to resend.
+    expect(coordinator.store.list()).toMatchObject([{ status: "unresolved" }]);
   });
 
   it("503 on the status read too → 'status_unavailable'; the client keeps the key and does not POST", async () => {
@@ -222,6 +223,90 @@ describe("unknown outcomes never trigger a second AI call", () => {
     const fresh = stateOf(await coordinator.startNewRequest(thread.id, calc, { acknowledgeMayRegenerate: true }));
     expect(fresh.state).toBe("completed");
     expect(submit.mock.calls[1][1].request_key).not.toBe(submit.mock.calls[0][1].request_key);
+  });
+});
+
+describe("unresolved outcome fences the thread (review P1)", () => {
+  it("POST 503 + recovery 404 → a second submitNew is refused; zero additional POSTs", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "unavailable_before_admission" });
+    const thread = await newThread(api);
+    expect(await coordinator.submitNew(thread.id, calc)).toMatchObject({ kind: "unknown", reason: "no_visible_record" });
+    const second = await coordinator.submitNew(thread.id, calc).catch((e) => e);
+    expect(second).toBeInstanceOf(LocalSubmitGuardError);
+    expect(second).toMatchObject({ reason: "unresolved_request", records: [{ threadId: thread.id, status: "unresolved" }] });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("POST 503 + recovery 503 → a second submitNew is refused; zero additional POSTs", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "unavailable_after_admission", readOutages: 1 });
+    const thread = await newThread(api);
+    expect(await coordinator.submitNew(thread.id, calc)).toMatchObject({ kind: "unknown", reason: "status_unavailable" });
+    await expect(coordinator.submitNew(thread.id, calc)).rejects.toMatchObject({ reason: "unresolved_request" });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(api.stats.simulatedCoreAdmissions).toBe(1);
+  });
+
+  it("network loss + a failed (non-503) recovery read also keeps the fence", async () => {
+    const { api, coordinator, submit, recover } = setup({ scenario: "direct_result" });
+    const thread = await newThread(api);
+    submit.mockRejectedValueOnce(new WebApiError({ kind: "network", operation: "submitMessage", status: null, code: null }));
+    recover.mockRejectedValueOnce(new WebApiError({ kind: "http", operation: "getRequestByKey", status: 401, code: "unauthenticated" }));
+    expect(await coordinator.submitNew(thread.id, calc)).toMatchObject({ kind: "rejected", record: { status: "unresolved" } });
+    await expect(coordinator.submitNew(thread.id, calc)).rejects.toMatchObject({ reason: "unresolved_request" });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a later successful recovery read lifts the fence", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "unavailable_after_admission", readOutages: 1 });
+    const thread = await newThread(api);
+    const first = await coordinator.submitNew(thread.id, calc);
+    if (first.kind !== "unknown") throw new Error("expected unknown");
+    expect(stateOf(await coordinator.recover(first.record)).state).toBe("completed");
+    expect(coordinator.unresolvedRequests(thread.id)).toEqual([]);
+    api.setScenario("direct_result");
+    expect(stateOf(await coordinator.submitNew(thread.id, calc)).state).toBe("completed");
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("only the acknowledged startNewRequest passes the fence; the earlier key is kept as superseded and stays recoverable", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "unavailable_before_admission" });
+    const thread = await newThread(api);
+    await coordinator.submitNew(thread.id, calc);
+    const oldKey = submit.mock.calls[0][1].request_key;
+    const noAck = {} as { acknowledgeMayRegenerate: true };
+    await expect(coordinator.startNewRequest(thread.id, calc, noAck)).rejects.toBeInstanceOf(RecoveryNotPermittedError);
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    api.setScenario("direct_result");
+    const fresh = stateOf(await coordinator.startNewRequest(thread.id, calc, { acknowledgeMayRegenerate: true }));
+    const newKey = submit.mock.calls[1][1].request_key;
+    expect(newKey).not.toBe(oldKey);
+    expect(fresh.state).toBe("completed");
+    expect(coordinator.store.get(oldKey)).toMatchObject({ status: "superseded", supersededBy: newKey });
+    expect(coordinator.unresolvedRequests(thread.id)).toEqual([]);
+    // Still recoverable by key (read only); a failed read does not resurrect the fence.
+    expect(await coordinator.recover(coordinator.store.get(oldKey)!)).toMatchObject({ kind: "unknown", reason: "no_visible_record" });
+    expect(coordinator.store.get(oldKey)?.status).toBe("superseded");
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("a server-recorded ambiguous outcome also requires the acknowledged path", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "ambiguous" });
+    const thread = await newThread(api);
+    await coordinator.submitNew(thread.id, calc);
+    await expect(coordinator.submitNew(thread.id, calc)).rejects.toMatchObject({ reason: "unresolved_request" });
+    api.setScenario("direct_result");
+    await coordinator.startNewRequest(thread.id, calc, { acknowledgeMayRegenerate: true });
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("a definitive rejection (429) does not fence: nothing was admitted", async () => {
+    const { api, coordinator, submit } = setup({ scenario: "rate_limited" });
+    const thread = await newThread(api);
+    expect(await coordinator.submitNew(thread.id, calc)).toMatchObject({ kind: "rejected", record: { status: "rejected" } });
+    api.setScenario("direct_result");
+    expect(stateOf(await coordinator.submitNew(thread.id, calc)).state).toBe("completed");
+    expect(submit).toHaveBeenCalledTimes(2);
   });
 });
 

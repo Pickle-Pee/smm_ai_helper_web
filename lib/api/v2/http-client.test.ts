@@ -252,6 +252,27 @@ describe("WebApiV2Client — typed errors", () => {
     expect(v3).toMatchObject({ kind: "invalid_response" });
   });
 
+  it("rejects 2xx JSON that is not a /v2 envelope (missing schema_version, arrays)", async () => {
+    for (const body of [{ foo: 1 }, [], [fixtures.responses.me()], { ...fixtures.responses.me(), schema_version: undefined }]) {
+      const err = await new WebApiV2Client({ fetch: fakeFetch(() => json(200, body)).fetch }).getMe().catch((e) => e);
+      expect(err).toMatchObject({ kind: "invalid_response", status: 200, operation: "getMe" });
+    }
+    const submit = await new WebApiV2Client({ fetch: fakeFetch(csrf, () => json(200, { foo: 1 })).fetch })
+      .submitMessage(THREAD, fixtures.requests.strategy())
+      .catch((e) => e);
+    expect(submit).toMatchObject({ kind: "invalid_response", operation: "submitMessage" });
+    expect(submit.outcomeUnknown).toBe(true); // recovered by key, never resent
+  });
+
+  it("validates the snapshot envelope of getMessageResult (it has no top-level schema_version)", async () => {
+    const ok = await new WebApiV2Client({ fetch: fakeFetch(() => json(200, fixtures.responses.resultSnapshotRun())).fetch }).getMessageResult("m1");
+    expect(ok.result_kind).toBe("RUN");
+    for (const body of [{ foo: 1 }, [], fixtures.responses.me(), { ...fixtures.responses.resultSnapshotRun(), envelope_version: 2 }]) {
+      const err = await new WebApiV2Client({ fetch: fakeFetch(() => json(200, body)).fetch }).getMessageResult("m1").catch((e) => e);
+      expect(err).toMatchObject({ kind: "invalid_response", operation: "getMessageResult" });
+    }
+  });
+
   it("maps 200 and 202 of submitMessage", async () => {
     const { fetch } = fakeFetch(csrf, () => json(202, fixtures.responses.messageWorkflowStarted()));
     const res = await new WebApiV2Client({ fetch }).submitMessage(THREAD, fixtures.requests.strategy());

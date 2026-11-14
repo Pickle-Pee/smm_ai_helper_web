@@ -75,6 +75,12 @@ interface CallSpec {
   timeoutMs?: number;
   /** `empty` for 204 operations. */
   expect?: "json" | "empty";
+  /**
+   * Shape check of a 2xx JSON body. `web_api` (default): an object whose required `schema_version` is
+   * `web_api.v2`. `snapshot`: a `ResultSnapshot` object (`envelope_version: 1` + string `result_kind`; it has no
+   * top-level `schema_version`). Not a full schema validation: it rejects bodies that are not /v2 envelopes.
+   */
+  envelope?: "web_api" | "snapshot";
   /** Retry once after `403 csrf_failed` (contract retry policy `same_request`). */
   csrfRetry?: boolean;
 }
@@ -202,7 +208,7 @@ export class WebApiV2Client implements WebApiV2 {
   }
 
   async getMessageResult(messageId: string, options?: CallOptions): Promise<ResultSnapshot> {
-    return (await this.call<ResultSnapshot>("getMessageResult", { path: { message_id: messageId }, signal: options?.signal })).data;
+    return (await this.call<ResultSnapshot>("getMessageResult", { path: { message_id: messageId }, signal: options?.signal, envelope: "snapshot" })).data;
   }
 
   /* ---------------- transport ---------------- */
@@ -325,11 +331,7 @@ export class WebApiV2Client implements WebApiV2 {
 
       if (response.ok) {
         if (spec.expect === "empty") return { status: response.status, data: undefined as T };
-        if (!parsed.ok || parsed.value === null || typeof parsed.value !== "object") {
-          throw fail("invalid_response", { status: response.status, requestId: headerRequestId });
-        }
-        const envelope = parsed.value as { schema_version?: unknown };
-        if ("schema_version" in envelope && envelope.schema_version !== WEB_API_V2_CONTRACT.responseSchemaVersion) {
+        if (!parsed.ok || !isEnvelope(parsed.value, spec.envelope ?? "web_api")) {
           throw fail("invalid_response", { status: response.status, requestId: headerRequestId });
         }
         return { status: response.status, data: parsed.value as T };
@@ -367,6 +369,14 @@ export class WebApiV2Client implements WebApiV2 {
       spec.signal?.removeEventListener("abort", onCallerAbort);
     }
   }
+}
+
+/** Minimal envelope check for 2xx bodies: a plain object of the expected /v2 envelope, never an array. */
+export function isEnvelope(value: unknown, kind: "web_api" | "snapshot"): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const obj = value as Record<string, unknown>;
+  if (kind === "snapshot") return obj.envelope_version === 1 && typeof obj.result_kind === "string" && !("schema_version" in obj);
+  return obj.schema_version === WEB_API_V2_CONTRACT.responseSchemaVersion;
 }
 
 function parseJson(text: string, contentType: string | null): { ok: true; value: unknown } | { ok: false } {
