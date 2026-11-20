@@ -107,6 +107,14 @@ except Exception as exc:  # noqa: BLE001
     check("openapi-3.1 validation (openapi-spec-validator)", False, str(exc)[:400])
 check("openapi version is 3.1.x", str(spec["openapi"]).startswith("3.1."), spec["openapi"])
 
+# Bot-only confirmation is deliberately outside public SDK generation.
+internal = yaml.safe_load((API / "telegram-confirm.internal.openapi.yaml").read_text(encoding="utf-8"))
+validate_openapi(internal)
+confirm_path = "/internal/identity/web-login-confirm"
+check("confirmation stays outside public paths", confirm_path not in spec["paths"])
+confirm_body = internal["paths"][confirm_path]["post"]["requestBody"]["content"]["application/json"]
+Draft202012Validator(confirm_body["schema"]).validate(confirm_body["example"])
+
 # 2. $ref and externalValue -----------------------------------------------------------------
 refs = [v for p, v in walk(spec) if p and p[-1] == "$ref"]
 broken = []
@@ -145,7 +153,7 @@ check("proposed schemas do not depend on future schemas (except the reserved Res
 # 4. Security / CSRF ----------------------------------------------------------------------------
 bad = []
 for p, m, op in operations():
-    if m in UNSAFE and op["operationId"] not in ("exchangeTelegramLoginToken",):
+    if m in UNSAFE and op["operationId"] not in ("exchangeTelegramLoginToken", "startTelegramLoginChallenge"):
         sec = op.get("security", spec["security"])
         if not any("csrfHeader" in req for req in sec):
             bad.append(op["operationId"])

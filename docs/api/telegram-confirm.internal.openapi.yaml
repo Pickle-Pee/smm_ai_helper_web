@@ -1,0 +1,38 @@
+openapi: 3.1.0
+info:
+  title: Brenvio bot-only browser confirmation
+  version: '1.0'
+paths:
+  /internal/identity/web-login-confirm:
+    post:
+      operationId: confirmTelegramBrowserAttempt
+      description: |
+        Bot-only network, verified private Telegram update. The bot derives actor from the sender.
+        Resolve the verified Telegram identity to users.id. Match that owner, pending attempt,
+        code hash and live login token atomically. Never log the command, body or credential.
+        A confirmed attempt still needs the original token and HttpOnly attempt cookie at exchange.
+      security:
+        - botBearer: []
+          telegramActor: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation_code]
+              properties:
+                confirmation_code: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+            example: {confirmation_code: fixture_only_code_0000}
+      responses:
+        '204': {description: Pending attempt confirmed. Empty body.}
+        '401': {description: 'Invalid bot credential or invalid login attempt (unknown code, wrong owner, replay or expiry).'}
+        '403': {description: Login disabled.}
+        '422': {description: Invalid request.}
+        '429': {description: Actor rate limited. Retry-After specifies the delay in seconds.}
+        '503': {description: Storage unavailable.}
+components:
+  securitySchemes:
+    botBearer: {type: http, scheme: bearer}
+    telegramActor: {type: apiKey, in: header, name: X-Telegram-User-ID}
