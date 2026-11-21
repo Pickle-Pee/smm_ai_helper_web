@@ -1,11 +1,35 @@
 /**
  * TypeScript types for Brenvio Web API v2 (PROPOSED contract).
  * GENERATED FILE - DO NOT EDIT. Regenerate with `npm run generate:api`; CI runs `npm run check:api`.
- * Source: docs/api/web-api-v2.openapi.yaml (info.version 2.0.0-draft.3, sha256 10c569f9adf2d08064842e0dfde22d8d1ccf4cb4e190b91abf75c09c9d6e1a1b).
+ * Source: docs/api/web-api-v2.openapi.yaml (info.version 2.0.0-draft.3, sha256 1c1361a950cee64f8db79daebca440daf3a9e867754541e0f5e6456de7919df5).
  * Generator: openapi-typescript 7.13.0.
  */
 
 export interface paths {
+    "/v2/auth/telegram/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind one browser attempt to a live Telegram login link
+         * @description An explicit same-origin POST claims a live, unclaimed login token. Send its fragment value
+         *     only in the JSON body. A successful claim issues an HttpOnly attempt cookie and a code
+         *     for the opener to submit in their own private bot chat. The link owner must confirm it.
+         *     A subsequent claim on the same link receives 401 login_token_invalid and cannot replace the attempt.
+         *     Both credentials expire with the link. This pre-session operation requires same-origin evidence.
+         */
+        post: operations["startTelegramLoginChallenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/auth/telegram/exchange": {
         parameters: {
             query?: never;
@@ -19,7 +43,8 @@ export interface paths {
          * Exchange a one-time Telegram login token for a browser session
          * @description The bot obtains a single-use link from the bot-only internal endpoint
          *     (`POST /internal/identity/web-login-link`, not routed by the edge, not in this document) and sends
-         *     `https://<app>/auth/telegram#t=<token>` to the user. The page reads the fragment and posts it here.
+         *     `https://<app>/auth/telegram#t=<token>` to the user. Exchange requires a confirmed browser challenge for this link and the matching HttpOnly attempt cookie.
+         *     On success clear the attempt cookie. A missing or mismatched attempt or confirmation gives 401 login_token_invalid.
          *
          *     * The token is single-use, TTL 10 minutes, stored only as a hash. Unknown, expired and used tokens are
          *       indistinguishable (`401 login_token_invalid`).
@@ -465,7 +490,7 @@ export interface paths {
          *       after `Retry-After` with the same key.
          *
          *     **Receipt status check (read-only).** For a revision without a snapshot the server asks the core
-         *     through the proposed `ExecutionStore.peek(owner = principal.user_id, request_key)` (README §10.3):
+         *     through the proposed `ExecutionStore.peek(owner = principal.user_id, request_key)` (README В§10.3):
          *     a single SELECT that returns the receipt status (`running`, `completed`, `needs_input`, `ambiguous`)
          *     or "absent", with the same owner, workflow-type and 30-day retention filters as the existing `get`.
          *     It takes no lock, deletes nothing, never claims, never validates or replays a payload and never calls
@@ -486,7 +511,7 @@ export interface paths {
          *     Seven days is strictly shorter than the core receipt retention (30 days); the predicate is checked
          *     again inside the POST admission transaction. After the window closes no `resubmit_same_key` is issued,
          *     even if the same key once produced a completed result whose receipt has now been purged. Missing
-         *     status/clock/retention guarantees yield 503 and NO model call. See README §10.4 and golden fixture.
+         *     status/clock/retention guarantees yield 503 and NO model call. See README В§10.4 and golden fixture.
          *
          *     `ambiguous` is NEVER derived from elapsed time, a hung request or a missing heartbeat. If the
          *     snapshot insert fails, its transaction is rolled back, nothing else changed, and the response is
@@ -778,6 +803,11 @@ export interface components {
         TelegramExchangeRequest: {
             /** @description One-time login token taken from the URL fragment. Never logged, never placed in a query string. */
             token: string;
+        };
+        TelegramBrowserChallenge: {
+            schema_version: components["schemas"]["SchemaVersion"];
+            confirmation_code: string;
+            expires_at: components["schemas"]["Timestamp"];
         };
         CsrfToken: {
             schema_version: components["schemas"]["SchemaVersion"];
@@ -1936,6 +1966,8 @@ export interface components {
     };
     requestBodies: never;
     headers: {
+        /** @description Host-only __Host-brenvio_attempt, Secure, HttpOnly, SameSite=Lax, Path=/, Max-Age bounded by remaining login TTL. */
+        AttemptSetCookie: string;
         /** @description `__Host-brenvio_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax` */
         SessionSetCookie: string;
         /** @description `__Host-brenvio_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` */
@@ -1960,6 +1992,37 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    startTelegramLoginChallenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TelegramExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Browser attempt created. */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["AttemptSetCookie"];
+                    "Cache-Control": components["headers"]["CacheControlPrivate"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramBrowserChallenge"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     exchangeTelegramLoginToken: {
         parameters: {
             query?: never;

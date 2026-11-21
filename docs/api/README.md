@@ -187,6 +187,11 @@ sequenceDiagram
   V-->>B: одноразовая ссылка, TTL 10 мин, в БД только hash
   B-->>U: https://app…/auth/telegram#t=<token>
   U->>UI: открывает ссылку
+  UI->>V: POST /api/v2/auth/telegram/challenge {token}
+  V-->>UI: confirmation_code + HttpOnly attempt cookie
+  U->>B: /confirm CODE в личном чате
+  B->>V: POST /internal/identity/web-login-confirm (actor + code)
+  V-->>B: 204 confirmed
   UI->>V: POST /api/v2/auth/telegram/exchange {token}
   V-->>UI: 200 AuthSession + Set-Cookie __Host-brenvio_session
   UI->>V: GET /api/v2/me, /orgs, /orgs/{org}/projects
@@ -208,11 +213,13 @@ Companion-контракт бота (**proposed, вне OpenAPI**: другая 
 | Ответ | `{"url": "https://app.<domain>/auth/telegram#t=<token>", "expires_at": "<RFC 3339>"}` |
 | Ошибки | существующие `401`/`503` bot-зоны; rate limit на пользователя |
 
+Подтверждение, состояния попытки, флаги и критерии включения описаны в [утверждённом B2.0](b2-0-web-session-contract.md).
+
 ### 5.2 Сессия и CSRF
 
 - Cookie `__Host-brenvio_session`: случайные 256 бит, `HttpOnly; Secure; SameSite=Lax; Path=/`, без `Domain`.
-  В `web_sessions` хранится только `sha256(token)`. Предлагаемые сроки: idle 7 дней, absolute 30 дней (OQ-7).
-- На каждом небезопасном методе (`POST`, `PATCH`, `DELETE`) обязательны `X-CSRF-Token` и same-origin
+  В `web_sessions` хранится только `sha256(token)`. Для internal beta действуют idle 7 дней и absolute 30 дней.
+- На каждом session-bound небезопасном методе (`POST`, `PUT`, `PATCH`, `DELETE`) обязательны `X-CSRF-Token` и same-origin
   `Origin` / `Sec-Fetch-Site`. Токен привязан к сессии, выдаётся в `AuthSession.csrf_token` и `GET /v2/auth/csrf`.
   Клиент держит его в памяти; после `403 csrf_failed` запрашивает заново и повторяет запрос.
 - CORS отсутствует: API только same-origin.

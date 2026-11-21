@@ -565,6 +565,14 @@
       "operation_id": "listThreads",
       "status": 200,
       "schema": "#/components/schemas/ThreadList"
+    },
+    {
+      "file": "responses/telegram-challenge.200.json",
+      "type": "response",
+      "title": "Browser attempt pending confirmation",
+      "operation_id": "startTelegramLoginChallenge",
+      "status": 200,
+      "schema": "#/components/schemas/TelegramBrowserChallenge"
     }
   ]
 }

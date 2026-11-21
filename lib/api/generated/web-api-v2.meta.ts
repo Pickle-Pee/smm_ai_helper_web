@@ -1,7 +1,7 @@
 /**
  * Contract metadata for Brenvio Web API v2 (version, error catalog, operation table).
  * GENERATED FILE - DO NOT EDIT. Regenerate with `npm run generate:api`; CI runs `npm run check:api`.
- * Source: docs/api/web-api-v2.openapi.yaml (info.version 2.0.0-draft.3, sha256 10c569f9adf2d08064842e0dfde22d8d1ccf4cb4e190b91abf75c09c9d6e1a1b).
+ * Source: docs/api/web-api-v2.openapi.yaml (info.version 2.0.0-draft.3, sha256 1c1361a950cee64f8db79daebca440daf3a9e867754541e0f5e6456de7919df5).
  * Generator: openapi-typescript 7.13.0.
  */
 
@@ -9,7 +9,7 @@ export const WEB_API_V2_CONTRACT = {
   version: "2.0.0-draft.3",
   status: "proposed",
   responseSchemaVersion: "web_api.v2",
-  specSha256: "10c569f9adf2d08064842e0dfde22d8d1ccf4cb4e190b91abf75c09c9d6e1a1b",
+  specSha256: "1c1361a950cee64f8db79daebca440daf3a9e867754541e0f5e6456de7919df5",
   /** Public same-origin prefix the browser uses (servers[0].url). Paths below are native FastAPI paths. */
   publicBasePath: "/api",
 } as const;
@@ -49,6 +49,7 @@ export const ERROR_CATALOG = {
 
 /** Every operation of the contract: method, native path, contract status and whether it is an unsafe method. */
 export const OPERATIONS = {
+  startTelegramLoginChallenge: { method: "POST", path: "/v2/auth/telegram/challenge", status: "proposed", unsafe: true },
   exchangeTelegramLoginToken: { method: "POST", path: "/v2/auth/telegram/exchange", status: "proposed", unsafe: true },
   getCsrfToken: { method: "GET", path: "/v2/auth/csrf", status: "proposed", unsafe: false },
   logout: { method: "POST", path: "/v2/auth/logout", status: "proposed", unsafe: true },

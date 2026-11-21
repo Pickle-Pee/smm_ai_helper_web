@@ -192,6 +192,48 @@ x-error-catalog:
     meaning: 'The stored payload is intact (hash matches) but its frozen decoder or an upcaster failed. A server defect; data is untouched.'
 
 paths:
+  /v2/auth/telegram/challenge:
+    post:
+      tags: [auth]
+      operationId: startTelegramLoginChallenge
+      summary: Bind one browser attempt to a live Telegram login link
+      description: |
+        An explicit same-origin POST claims a live, unclaimed login token. Send its fragment value
+        only in the JSON body. A successful claim issues an HttpOnly attempt cookie and a code
+        for the opener to submit in their own private bot chat. The link owner must confirm it.
+        A subsequent claim on the same link receives 401 login_token_invalid and cannot replace the attempt.
+        Both credentials expire with the link. This pre-session operation requires same-origin evidence.
+      x-status: proposed
+      x-stage: B2
+      x-availability: internal-beta
+      x-min-role: public
+      x-feature-flag: WEB_API_ENABLED, WEB_TELEGRAM_LOGIN_ENABLED
+      x-error-codes: {'401': [login_token_invalid, unauthenticated], '403': [csrf_failed, feature_disabled], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TelegramExchangeRequest'}
+            examples:
+              default: {externalValue: fixtures/requests/auth-exchange.json}
+      responses:
+        '200':
+          description: Browser attempt created.
+          headers:
+            Set-Cookie: {$ref: '#/components/headers/AttemptSetCookie'}
+            Cache-Control: {$ref: '#/components/headers/CacheControlPrivate'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelegramBrowserChallenge'}
+              examples:
+                default: {externalValue: fixtures/responses/telegram-challenge.200.json}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+
   /v2/auth/telegram/exchange:
     post:
       tags: [auth]
@@ -200,7 +242,8 @@ paths:
       description: |
         The bot obtains a single-use link from the bot-only internal endpoint
         (`POST /internal/identity/web-login-link`, not routed by the edge, not in this document) and sends
-        `https://<app>/auth/telegram#t=<token>` to the user. The page reads the fragment and posts it here.
+        `https://<app>/auth/telegram#t=<token>` to the user. Exchange requires a confirmed browser challenge for this link and the matching HttpOnly attempt cookie.
+        On success clear the attempt cookie. A missing or mismatched attempt or confirmation gives 401 login_token_invalid.
 
         * The token is single-use, TTL 10 minutes, stored only as a hash. Unknown, expired and used tokens are
           indistinguishable (`401 login_token_invalid`).
@@ -215,8 +258,9 @@ paths:
       x-availability: internal-beta
       x-min-role: public
       x-feature-flag: WEB_API_ENABLED, WEB_TELEGRAM_LOGIN_ENABLED
-      x-error-codes: {'401': [login_token_invalid], '403': [csrf_failed], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
-      security: []
+      x-error-codes: {'401': [login_token_invalid, unauthenticated], '403': [csrf_failed, feature_disabled], '422': [invalid_request], '429': [rate_limited], '503': [temporarily_unavailable]}
+      security:
+        - attemptCookie: []
       requestBody:
         required: true
         content:
@@ -1062,7 +1106,7 @@ paths:
           after `Retry-After` with the same key.
 
         **Receipt status check (read-only).** For a revision without a snapshot the server asks the core
-        through the proposed `ExecutionStore.peek(owner = principal.user_id, request_key)` (README §10.3):
+        through the proposed `ExecutionStore.peek(owner = principal.user_id, request_key)` (README В§10.3):
         a single SELECT that returns the receipt status (`running`, `completed`, `needs_input`, `ambiguous`)
         or "absent", with the same owner, workflow-type and 30-day retention filters as the existing `get`.
         It takes no lock, deletes nothing, never claims, never validates or replays a payload and never calls
@@ -1083,7 +1127,7 @@ paths:
         Seven days is strictly shorter than the core receipt retention (30 days); the predicate is checked
         again inside the POST admission transaction. After the window closes no `resubmit_same_key` is issued,
         even if the same key once produced a completed result whose receipt has now been purged. Missing
-        status/clock/retention guarantees yield 503 and NO model call. See README §10.4 and golden fixture.
+        status/clock/retention guarantees yield 503 and NO model call. See README В§10.4 and golden fixture.
 
         `ambiguous` is NEVER derived from elapsed time, a hung request or a missing heartbeat. If the
         snapshot insert fails, its transaction is rolled back, nothing else changed, and the response is
@@ -1466,13 +1510,18 @@ paths:
 
 components:
   securitySchemes:
+    attemptCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-brenvio_attempt
+      description: Browser-bound challenge secret. Exchange also requires Telegram confirmation and the original login token.
     sessionCookie:
       type: apiKey
       in: cookie
       name: __Host-brenvio_session
       description: |
         Opaque random 256-bit session token. `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain`. Only
-        `sha256(token)` is stored server-side (`web_sessions`). Proposed lifetimes: idle 7 days, absolute
+        `sha256(token)` is stored server-side (`web_sessions`). Internal beta lifetimes: idle 7 days, absolute
         30 days; rotated on login. Not accepted on legacy bot routes; the bot token is not accepted here.
     csrfHeader:
       type: apiKey
@@ -1538,6 +1587,9 @@ components:
       schema: {type: string, format: uuid}
 
   headers:
+    AttemptSetCookie:
+      description: Host-only __Host-brenvio_attempt, Secure, HttpOnly, SameSite=Lax, Path=/, Max-Age bounded by remaining login TTL.
+      schema: {type: string}
     SessionSetCookie:
       description: '`__Host-brenvio_session=<opaque>; Path=/; HttpOnly; Secure; SameSite=Lax`'
       schema: {type: string}
@@ -1817,6 +1869,16 @@ components:
           minLength: 32
           maxLength: 256
           pattern: '^[A-Za-z0-9_-]+$'
+
+    TelegramBrowserChallenge:
+      x-status: proposed
+      type: object
+      additionalProperties: false
+      required: [schema_version, confirmation_code, expires_at]
+      properties:
+        schema_version: {$ref: '#/components/schemas/SchemaVersion'}
+        confirmation_code: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
 
     CsrfToken:
       x-status: proposed
