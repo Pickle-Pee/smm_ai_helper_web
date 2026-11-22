@@ -4,9 +4,17 @@ import { CABINET_ENABLED } from "@/lib/cabinet-mode";
 export function middleware(request: NextRequest) {
   if (!CABINET_ENABLED) return NextResponse.next();
 
-  const response = request.cookies.get("__Host-brenvio_session")?.value
-    ? NextResponse.next()
-    : NextResponse.redirect(new URL("/auth/telegram", request.url));
+  let response = NextResponse.next();
+  if (!request.cookies.get("__Host-brenvio_session")?.value) {
+    const login = new URL("/auth/telegram", request.url);
+    // Caddy preserves the public Host. The standalone request URL can use the bind address.
+    const host = request.headers.get("host");
+    if (host) {
+      login.port = "";
+      login.host = host;
+    }
+    response = NextResponse.redirect(login);
+  }
   response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

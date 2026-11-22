@@ -25,9 +25,10 @@ check_page() {
 }
 
 check_cabinet_redirect() {
-  local path="$1" headers
+  local path="$1" headers location
   headers=$(curl -sS -D - -o /dev/null -m 10 "$BASE$path" | tr -d '\r') || true
-  if [[ "$headers" == *" 307"* ]] && grep -qiE '^location: /auth/telegram$' <<< "$headers"; then
+  location=$(sed -n 's/^[Ll]ocation: //p' <<< "$headers")
+  if [[ "$headers" == *" 307"* && ( "$location" == "/auth/telegram" || "$location" == "$BASE/auth/telegram" ) ]]; then
     ok "$path requires a session"
   else
     bad "$path did not redirect to Telegram login"

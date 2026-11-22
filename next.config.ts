@@ -33,6 +33,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   env: { CABINET_ENABLED: process.env.CABINET_ENABLED === "true" ? "true" : "false" },
+  skipMiddlewareUrlNormalize: true,
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
