@@ -19,7 +19,20 @@ check_page() {
   code=$(curl -sS -o "$body" -w '%{http_code}' -m 20 "$BASE$path") || code=000
   if [[ "$code" != "200" ]]; then bad "$path -> HTTP $code"; return; fi
   grep -q "<title>$title</title>" "$body" && ok "$path title '$title'" || bad "$path missing title '$title'"
-  grep -q "Brenvio Preview" "$body" && ok "$path preview banner" || bad "$path missing preview banner"
+  if [[ "${3:-}" == preview ]]; then
+    grep -q "Brenvio Preview" "$body" && ok "$path preview banner" || bad "$path missing preview banner"
+  fi
+}
+
+check_cabinet_redirect() {
+  local path="$1" headers location
+  headers=$(curl -sS -D - -o /dev/null -m 10 "$BASE$path" | tr -d '\r') || true
+  location=$(sed -n 's/^[Ll]ocation: //p' <<< "$headers")
+  if [[ "$headers" == *" 307"* && ( "$location" == "/auth/telegram" || "$location" == "$BASE/auth/telegram" ) ]]; then
+    ok "$path requires a session"
+  else
+    bad "$path did not redirect to Telegram login"
+  fi
 }
 
 echo "Smoke test: $BASE"
@@ -32,17 +45,30 @@ if [[ -n "$health" ]]; then
   fi
 fi
 
-check_page "/" "Рабочий стол · Brenvio"
-check_page "/workspace" "AI Workspace · Brenvio"
-check_page "/projects" "Проекты · Brenvio"
-check_page "/projects/p-little-feet" "Проект · Brenvio"
-check_page "/documents" "Документы · Brenvio"
-check_page "/settings" "Настройки · Brenvio"
+check_page "/auth/telegram" "Вход через Telegram · Brenvio"
+ASSET_PAGE="/"
+if [[ "${CABINET_ENABLED:-false}" == true ]]; then
+  ASSET_PAGE="/auth/telegram"
+  for path in / /workspace /projects /projects/p-little-feet /documents /settings; do
+    check_cabinet_redirect "$path"
+  done
+  if [[ "$BASE" == https://* ]]; then
+    code=$(curl -sS -o "$tmp/me.json" -w '%{http_code}' -m 10 "$BASE/api/v2/me") || code=000
+    [[ "$code" == "401" ]] && grep -q '"code":"unauthenticated"' "$tmp/me.json" && ok "/api/v2/me requires a session" || bad "/api/v2/me -> HTTP $code"
+  fi
+else
+  check_page "/" "Рабочий стол · Brenvio" preview
+  check_page "/workspace" "AI Workspace · Brenvio" preview
+  check_page "/projects" "Проекты · Brenvio" preview
+  check_page "/projects/p-little-feet" "Проект · Brenvio" preview
+  check_page "/documents" "Документы · Brenvio" preview
+  check_page "/settings" "Настройки · Brenvio" preview
+fi
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$BASE/this-page-does-not-exist") || code=000
 [[ "$code" == "404" ]] && ok "unknown route -> 404" || bad "unknown route -> HTTP $code"
 
-curl -fsS -m 10 "$BASE/" -o "$tmp/home.html" || true
+curl -fsS -m 10 "$BASE$ASSET_PAGE" -o "$tmp/home.html" || true
 asset=$(grep -oE '/_next/static/[^"]+\.(js|css)' "$tmp/home.html" | head -n1 || true)
 if [[ -n "$asset" ]]; then
   code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$BASE$asset") || code=000
@@ -60,7 +86,7 @@ for path in /manifest.webmanifest /icon.svg /opengraph-image; do
   [[ "$code" == "200" ]] && ok "$path" || bad "$path -> HTTP $code"
 done
 
-headers=$(curl -sS -D - -o /dev/null -m 10 "$BASE/" | tr -d '\r' | tr 'A-Z' 'a-z')
+headers=$(curl -sS -D - -o /dev/null -m 10 "$BASE$ASSET_PAGE" | tr -d '\r' | tr 'A-Z' 'a-z')
 for h in "x-robots-tag: noindex" "x-content-type-options: nosniff" "x-frame-options: deny" "content-security-policy:" "referrer-policy:"; do
   [[ "$headers" == *"$h"* ]] && ok "header $h" || bad "header '$h' missing"
 done

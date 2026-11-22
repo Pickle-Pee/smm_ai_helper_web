@@ -25,9 +25,38 @@
 	# 	{$BRENVIO_BASIC_AUTH_USER} {$BRENVIO_BASIC_AUTH_HASH}
 	# }
 
-	reverse_proxy 127.0.0.1:{$BRENVIO_PORT:3100} {
-		health_uri /api/health
-		health_interval 30s
+	@auth path /api/v2/auth/telegram/challenge /api/v2/auth/telegram/exchange
+	@cabinet path_regexp cabinet ^/api/v2/(auth/(csrf|logout)|me|orgs(/[0-9a-fA-F-]{36}/projects)?|projects/[0-9a-fA-F-]{36}(/brand(/import-telegram)?)?)$
+	@private path /api/v2 /api/v2/* /v2 /v2/* /internal /internal/* /api/internal /api/internal/*
+
+	log_skip @private
+
+	route {
+		handle @auth {
+			uri strip_prefix /api
+			reverse_proxy 127.0.0.1:8101 {
+				header_up X-Brenvio-Client {remote_host}
+			}
+		}
+
+		handle @cabinet {
+			uri strip_prefix /api
+			request_body {
+				max_size 64KB
+			}
+			reverse_proxy 127.0.0.1:8000
+		}
+
+		handle @private {
+			respond 404
+		}
+
+		handle {
+			reverse_proxy 127.0.0.1:{$BRENVIO_PORT:3100} {
+				health_uri /api/health
+				health_interval 30s
+			}
+		}
 	}
 
 	log {

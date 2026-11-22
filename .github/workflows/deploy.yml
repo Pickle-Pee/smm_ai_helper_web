@@ -28,6 +28,7 @@ concurrency:
 env:
   SITE_URL: ${{ vars.SITE_URL || 'https://app.24rubridge.ru' }}
   DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+  CABINET_ENABLED: ${{ vars.CABINET_ENABLED == 'true' && 'true' || 'false' }}
 
 jobs:
   deploy:
@@ -76,7 +77,7 @@ jobs:
           TAG="${GITHUB_SHA::12}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           docker buildx build --load -t "brenvio-web:$TAG" \
-            --build-arg SITE_URL="$SITE_URL" --build-arg APP_VERSION="$TAG" .
+            --build-arg SITE_URL="$SITE_URL" --build-arg APP_VERSION="$TAG" --build-arg CABINET_ENABLED="$CABINET_ENABLED" .
       - name: Pre-deploy smoke test (local container)
         if: github.event_name == 'push' || inputs.action == 'deploy'
         run: |
