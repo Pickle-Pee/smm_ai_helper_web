@@ -15,7 +15,7 @@ export const statusTone: Record<ProjectStatus, "success" | "neutral" | "outline"
 
 export interface ProjectStats {
   /** Copilot threads of this project (Web API v2 thread summaries). */
-  threads: number;
+  threads?: number;
   /** The caller's role, server-computed (`Project.role`), as a readable label. */
   roleLabel: string;
 }
@@ -48,9 +48,11 @@ export function ProjectCard({ project, stats, now }: { project: Project; stats: 
       )}
 
       <div className={styles.cardFooter}>
-        <span className={styles.cardStat}>
-          <MessagesSquare size={14} aria-hidden /> {countLabel(stats.threads, ["диалог", "диалога", "диалогов"])}
-        </span>
+        {stats.threads !== undefined && (
+          <span className={styles.cardStat}>
+            <MessagesSquare size={14} aria-hidden /> {countLabel(stats.threads, ["диалог", "диалога", "диалогов"])}
+          </span>
+        )}
         <span className={styles.cardStat}>
           <UserRound size={14} aria-hidden /> {stats.roleLabel}
         </span>

@@ -29,6 +29,10 @@ export type OrganizationList = Schemas["OrganizationList"];
 export type Project = Schemas["Project"];
 export type ProjectList = Schemas["ProjectList"];
 export type ProjectBrand = Schemas["ProjectBrand"];
+export type ProjectCreate = Schemas["ProjectCreate"];
+export type ProjectPatch = Schemas["ProjectPatch"];
+export type ProjectBrandPatch = Schemas["ProjectBrandPatch"];
+export type BrandImportRequest = Schemas["BrandImportRequest"];
 
 /* Workspace */
 export type Thread = Schemas["Thread"];

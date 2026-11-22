@@ -96,6 +96,52 @@ describe("WebApiV2Client — transport policy", () => {
 });
 
 describe("WebApiV2Client — CSRF", () => {
+  it("blocks workspace operations in the real cabinet before they reach fetch", async () => {
+    const { fetch, calls } = fakeFetch();
+    const client = new WebApiV2Client({ fetch, allowedOperations: ["getMe"] });
+    await expect(client.listThreads("p1")).rejects.toThrow(/unavailable in the authenticated cabinet/);
+    await expect(client.submitMessage(THREAD, fixtures.requests.calculation())).rejects.toThrow(/unavailable in the authenticated cabinet/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forwards independent version tokens, the overwrite confirmation and the creation key", async () => {
+    const { fetch, calls } = fakeFetch(
+      csrf,
+      () => json(201, fixtures.responses.project()),
+      () => json(200, fixtures.responses.project()),
+      () => json(200, fixtures.responses.projectBrand()),
+      () => json(200, fixtures.responses.projectBrand()),
+    );
+    const client = new WebApiV2Client({ fetch });
+    const key = "0d7f3f9e-7d0e-4c1a-9d65-1f1c0f6f3a11";
+    await client.createProject("org", { name: "Проект", status: "active" }, key);
+    await client.updateProject("p1", { expected_version: 2, name: "Новое название" });
+    await client.updateProjectBrand("p1", { expected_version: 6, audience: "Покупатели" });
+    await client.importTelegramBrand("p1", { expected_version: 7, confirm_overwrite: true });
+    expect(calls.slice(1).map((call) => [call.init.method, call.url, call.body])).toEqual([
+      ["POST", "/api/v2/orgs/org/projects", { name: "Проект", status: "active" }],
+      ["PATCH", "/api/v2/projects/p1", { expected_version: 2, name: "Новое название" }],
+      ["PATCH", "/api/v2/projects/p1/brand", { expected_version: 6, audience: "Покупатели" }],
+      ["POST", "/api/v2/projects/p1/brand/import-telegram", { expected_version: 7, confirm_overwrite: true }],
+    ]);
+    expect(calls[1].headers["idempotency-key"]).toBe(key);
+    expect(calls.slice(1).every((call) => call.headers["x-csrf-token"] === fixtures.responses.authCsrf().csrf_token)).toBe(true);
+  });
+
+  it("checks the bound account before retrying a write under a changed session", async () => {
+    const other = fixtures.responses.me();
+    other.user.id += 1;
+    const { fetch, calls } = fakeFetch(
+      () => json(200, fixtures.responses.me()), csrf, () => json(200, other),
+    );
+    const onUnauthenticated = vi.fn();
+    const client = new WebApiV2Client({ fetch, onUnauthenticated, allowedOperations: ["getMe", "getCsrfToken", "updateProject"] });
+    await client.getMe();
+    await expect(client.updateProject("p1", { expected_version: 2, name: "A" })).rejects.toMatchObject({ status: 401 });
+    expect(calls.map((call) => call.init.method)).toEqual(["GET", "GET", "GET"]);
+    expect(onUnauthenticated).toHaveBeenCalledOnce();
+  });
+
   it("fetches the CSRF token once and sends it on every unsafe method", async () => {
     const { fetch, calls } = fakeFetch(csrf, () => json(201, fixtures.responses.threadCreated()), () => json(201, fixtures.responses.threadCreated()));
     const client = new WebApiV2Client({ fetch });

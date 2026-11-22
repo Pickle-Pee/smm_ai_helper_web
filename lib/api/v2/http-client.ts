@@ -3,6 +3,7 @@ import type { WebApiV2 } from "./contract";
 import { codeForEdgeStatus, isErrorResponse, parseRetryAfter, WebApiError, type WebApiErrorKind } from "./errors";
 import type {
   AuthSession,
+  BrandImportRequest,
   CallOptions,
   CsrfToken,
   Me,
@@ -10,7 +11,10 @@ import type {
   OrganizationList,
   Project,
   ProjectBrand,
+  ProjectBrandPatch,
+  ProjectCreate,
   ProjectList,
+  ProjectPatch,
   QueryOf,
   RequestKey,
   ResultSnapshot,
@@ -175,6 +179,24 @@ export class WebApiV2Client implements WebApiV2 {
 
   async getProjectBrand(projectId: string, options?: CallOptions): Promise<ProjectBrand> {
     return (await this.call<ProjectBrand>("getProjectBrand", { path: { project_id: projectId }, signal: options?.signal })).data;
+  }
+
+  async createProject(orgId: string, body: ProjectCreate, idempotencyKey: string, options?: CallOptions): Promise<Project> {
+    return (await this.call<Project>("createProject", {
+      path: { org_id: orgId }, body, headers: { "Idempotency-Key": idempotencyKey }, signal: options?.signal,
+    })).data;
+  }
+
+  async updateProject(projectId: string, body: ProjectPatch, options?: CallOptions): Promise<Project> {
+    return (await this.call<Project>("updateProject", { path: { project_id: projectId }, body, signal: options?.signal })).data;
+  }
+
+  async updateProjectBrand(projectId: string, body: ProjectBrandPatch, options?: CallOptions): Promise<ProjectBrand> {
+    return (await this.call<ProjectBrand>("updateProjectBrand", { path: { project_id: projectId }, body, signal: options?.signal })).data;
+  }
+
+  async importTelegramBrand(projectId: string, body: BrandImportRequest, options?: CallOptions): Promise<ProjectBrand> {
+    return (await this.call<ProjectBrand>("importTelegramBrand", { path: { project_id: projectId }, body, signal: options?.signal })).data;
   }
 
   /* ---------------- workspace ---------------- */

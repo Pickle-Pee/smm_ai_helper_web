@@ -32,6 +32,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  env: { CABINET_ENABLED: process.env.CABINET_ENABLED === "true" ? "true" : "false" },
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,

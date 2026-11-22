@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Logo } from "@/components/brand/Logo";
 import { Badge } from "@/components/ui/Badge";
 import { useAccount } from "@/features/account/store";
@@ -21,13 +22,19 @@ export function Topbar() {
   const override = demoViewLabel[demoView];
 
   return (
+    <TopbarFrame name={profile.name} preview={<PreviewBanner />} search={<GlobalSearch />} override={override} />
+  );
+}
+
+export function TopbarFrame({ name, preview, search, override }: { name: string; preview?: ReactNode; search?: ReactNode; override?: string | null }) {
+  return (
     <div className={styles.chrome}>
-      <PreviewBanner />
+      {preview}
       <header className={styles.topbar}>
       <Link href="/" className={styles.topbarLogo} aria-label="Brenvio — на рабочий стол">
         <Logo />
       </Link>
-      <GlobalSearch />
+      {search}
       <div className={styles.topbarEnd}>
         {override && (
           <Link href="/settings#demo" className={styles.demoOverride}>
@@ -36,8 +43,8 @@ export function Topbar() {
             </Badge>
           </Link>
         )}
-        <Link href="/settings" className={styles.avatar} aria-label={`Профиль: ${profile.name}. Открыть настройки`}>
-          {initials(profile.name)}
+        <Link href="/settings" className={styles.avatar} aria-label={`Профиль: ${name}. Открыть настройки`}>
+          {initials(name)}
         </Link>
       </div>
       </header>

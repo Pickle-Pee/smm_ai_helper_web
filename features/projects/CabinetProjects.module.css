@@ -1,0 +1,43 @@
+.organization {
+  display: grid;
+  gap: 8px;
+  max-width: 380px;
+}
+
+.form {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+}
+
+.organization p, .form h2, .form p {
+  margin: 0;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brandFields {
+  margin: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.brandFields dd {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.brandFields dt {
+  font-weight: 600;
+}
