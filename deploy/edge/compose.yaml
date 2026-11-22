@@ -29,6 +29,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  login-throttle:
+    image: nginx:stable-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3
+    network_mode: host
+    entrypoint: [nginx, -g, "daemon off;"]
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,uid=101,gid=101,mode=0700
+    volumes:
+      - ./login-throttle.conf:/etc/nginx/nginx.conf:ro
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 48m
+    cpus: "0.25"
+    pids_limit: 32
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
+
 volumes:
   # Certificates and ACME account live here — never delete without a plan.
   caddy_data:
