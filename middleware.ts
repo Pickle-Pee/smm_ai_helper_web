@@ -6,7 +6,7 @@ export function middleware(request: NextRequest) {
 
   const response = request.cookies.get("__Host-brenvio_session")?.value
     ? NextResponse.next()
-    : new NextResponse(null, { status: 307, headers: { Location: "/auth/telegram" } });
+    : NextResponse.redirect(new URL("/auth/telegram", request.url));
   response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

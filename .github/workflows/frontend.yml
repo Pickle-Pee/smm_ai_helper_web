@@ -63,6 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     strategy:
+      fail-fast: false
       matrix:
         cabinet: ['false', 'true']
     env:
