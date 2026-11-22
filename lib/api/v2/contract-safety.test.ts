@@ -105,9 +105,9 @@ describe("source policy", () => {
   const files = sourceFiles();
   const read = (f: string) => readFileSync(join(root, f), "utf8");
 
-  it("no app code imports the HTTP client (it is not connected in F1)", () => {
-    const offenders = files.filter((f) => f !== "lib/api/v2/http-client.ts" && /from\s+["'][^"']*v2\/http-client["']|import\(["'][^"']*v2\/http-client["']\)/.test(read(f)));
-    expect(offenders).toEqual([]);
+  it("only the cabinet adapter imports the HTTP client", () => {
+    const importers = files.filter((f) => /(?:from\s+|import\()["'](?:[^"']*v2\/|\.\/)http-client["']/.test(read(f)));
+    expect(importers).toEqual(["lib/api/v2/cabinet.ts"]);
   });
 
   it("no app code calls /api/v2 directly", () => {

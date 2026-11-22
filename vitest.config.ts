@@ -8,7 +8,7 @@ export default defineConfig({
   },
   test: {
     include: ["**/*.test.{ts,tsx}"],
-    exclude: ["node_modules/**", ".next/**"],
+    exclude: ["node_modules/**", ".next/**", ".claude/worktrees/**"],
     environment: "node",
     css: { modules: { classNameStrategy: "non-scoped" } },
   },
