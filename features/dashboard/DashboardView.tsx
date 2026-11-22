@@ -9,7 +9,9 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Monogram, BrandDot } from "@/components/ui/Monogram";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { EmptyState, ErrorState, LoadingRegion, Skeleton } from "@/components/ui/States";
-import { Page } from "@/components/ui/PageHeader";
+import { Page, PageHeader } from "@/components/ui/PageHeader";
+import { useCabinetSession } from "@/features/account/CabinetSession";
+import { CabinetProjectList, OrganizationSelector } from "@/features/projects/CabinetProjectsView";
 import { useProjectContext } from "@/features/projects/context";
 import { contextCompleteness } from "@/features/projects/model";
 import { REQUEST_STATE_TEXT } from "@/features/workspace/components/ThreadList";
@@ -29,7 +31,8 @@ import styles from "./Dashboard.module.css";
  * Nothing here shows metrics the contract does not provide (no result approval queue, no document counts per
  * project).
  */
-export function DashboardView() {
+export function DashboardView({ cabinet = false }: { cabinet?: boolean }) {
+  if (cabinet) return <CabinetDashboard />;
   return (
     <Page wide>
       <Briefing />
@@ -38,6 +41,21 @@ export function DashboardView() {
         <ThreadsPanel />
         <DocumentsPanel />
       </div>
+    </Page>
+  );
+}
+
+function CabinetDashboard() {
+  const { me } = useCabinetSession();
+  return (
+    <Page wide>
+      <PageHeader title={me.user.display_name ? `Здравствуйте, ${me.user.display_name}` : "Рабочий стол Brenvio"} />
+      <OrganizationSelector />
+      <Card padded>
+        <CardHeader plain title="Ваши проекты и бренды"
+          action={<ButtonLink href="/projects" variant="ghost" size="sm" iconRight={ArrowRight}>Все проекты</ButtonLink>} />
+        <CabinetProjectList limit={3} />
+      </Card>
     </Page>
   );
 }

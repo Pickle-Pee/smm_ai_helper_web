@@ -70,11 +70,15 @@ describe("F3: unified project context", () => {
     expect(read("features/projects/context.tsx")).not.toMatch(/\.(submit|createThreadAndSubmit|answerClarification|resubmitSameKey|startNewRequest|checkStatus|openThread)\(/);
   });
 
-  it("no screen offers local project creation or editing", () => {
+  it("only the authenticated cabinet exposes project writes", () => {
     const files = sourceFiles();
-    // (The generated contract metadata lists the PROPOSED write operations; they are not in `WebApiV2`.)
     const app = files.filter((f) => !f.startsWith("lib/api/generated/"));
-    expect(app.filter((f) => /createProject|updateProject|updateProjectBrand|ProjectFormDialog/.test(read(f)))).toEqual([]);
+    expect(app.filter((f) => /createProject|updateProject|updateProjectBrand|importTelegramBrand/.test(read(f))).sort()).toEqual([
+      "features/projects/CabinetProjectDetail.tsx",
+      "features/projects/CabinetProjectsView.tsx",
+      "lib/api/v2/cabinet.ts",
+      "lib/api/v2/http-client.ts",
+    ]);
     expect(read("lib/api/v2/contract.ts")).not.toMatch(/createProject|updateProject|importProjectBrand/);
   });
 });

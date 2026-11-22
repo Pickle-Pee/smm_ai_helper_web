@@ -9,6 +9,8 @@ import { useProjectContext } from "@/features/projects/context";
 import { useAccount } from "@/features/account/store";
 import { initials } from "@/lib/format";
 import { cx } from "@/lib/cx";
+import type { Project } from "@/lib/types";
+import type { ResourceStatus } from "@/lib/resource";
 import { isActive, primaryNav, settingsNav, type NavItem } from "./nav";
 import styles from "./Shell.module.css";
 
@@ -27,12 +29,22 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 }
 
 export function Sidebar() {
-  const pathname = usePathname();
-  // Same Web API v2 project ids as Dashboard, Projects and the AI Workspace (F3).
   const { projects, status, selectedProjectId } = useProjectContext();
   const { workspace } = useAccount();
-  const pinned = projects.map((p) => p.project).filter((p) => p.status !== "archived").slice(0, 5);
+  return <SidebarFrame demo projects={projects.map((p) => p.project)} status={status} selectedProjectId={selectedProjectId} workspaceName={workspace.name} />;
+}
 
+export interface SidebarFrameProps {
+  demo?: boolean;
+  projects: Project[];
+  status: ResourceStatus;
+  selectedProjectId?: string | null;
+  workspaceName?: string;
+}
+
+export function SidebarFrame({ demo, projects, status, selectedProjectId, workspaceName }: SidebarFrameProps) {
+  const pathname = usePathname();
+  const pinned = projects.filter((p) => p.status !== "archived").slice(0, 5);
   return (
     <aside className={styles.sidebar} aria-label="Основная навигация">
       <div className={styles.sidebarTop}>
@@ -42,13 +54,13 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <Link href="/workspace?new=1" className={styles.newRequest}>
+      {demo && <Link href="/workspace?new=1" className={styles.newRequest}>
         <Plus size={18} strokeWidth={2.2} aria-hidden />
         <span className={styles.navLabel}>Новый запрос</span>
         <span className={styles.navTooltip} aria-hidden>
           Новый запрос
         </span>
-      </Link>
+      </Link>}
 
       <nav className={styles.nav} aria-label="Разделы">
         <ul className={styles.navList}>
@@ -95,21 +107,21 @@ export function Sidebar() {
 
       <div className={styles.sidebarBottom}>
         <NavLink item={settingsNav} pathname={pathname} />
-        <div className={styles.demoCard}>
+        {demo && <div className={styles.demoCard}>
           <FlaskConical size={16} aria-hidden />
           <p>
             <strong>Brenvio Preview.</strong> Данные вымышленные, AI и облачное сохранение не подключены.
           </p>
-        </div>
-        <Link href="/settings#workspace" className={styles.workspaceChip} title={workspace.name}>
+        </div>}
+        {workspaceName && <Link href="/settings#workspace" className={styles.workspaceChip} title={workspaceName}>
           <span className={styles.workspaceAvatar} aria-hidden>
-            {initials(workspace.name)}
+            {initials(workspaceName)}
           </span>
           <span className={styles.workspaceText}>
-            <span className={styles.workspaceName}>{workspace.name}</span>
+            <span className={styles.workspaceName}>{workspaceName}</span>
             <span className={styles.workspaceMeta}>Рабочее пространство</span>
           </span>
-        </Link>
+        </Link>}
       </div>
     </aside>
   );

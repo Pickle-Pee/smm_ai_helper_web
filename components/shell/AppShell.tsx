@@ -1,20 +1,20 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Sidebar } from "./Sidebar";
-import { Topbar } from "./Topbar";
+import { Sidebar, SidebarFrame, type SidebarFrameProps } from "./Sidebar";
+import { Topbar, TopbarFrame } from "./Topbar";
 import { MobileTabBar } from "./MobileTabBar";
 import styles from "./Shell.module.css";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, cabinet }: { children: ReactNode; cabinet?: SidebarFrameProps & { name: string } }) {
   return (
     <div className={styles.shell}>
       <a href="#main" className={styles.skipLink}>
         Перейти к содержимому
       </a>
-      <Sidebar />
+      {cabinet ? <SidebarFrame {...cabinet} /> : <Sidebar />}
       <div className={styles.column}>
-        <Topbar />
+        {cabinet ? <TopbarFrame name={cabinet.name} /> : <Topbar />}
         <main id="main" className={styles.main} tabIndex={-1}>
           {children}
         </main>
