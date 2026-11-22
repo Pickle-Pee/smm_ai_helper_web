@@ -17,6 +17,7 @@ import type {
   SubmitMessageRequest,
   SubmitResponse,
   TelegramExchangeRequest,
+  TelegramBrowserChallenge,
   Thread,
   ThreadCreate,
   ThreadList,
@@ -26,9 +27,7 @@ import type {
 /**
  * HTTP transport for Brenvio Web API v2.
  *
- * NOT CONNECTED IN F1. Nothing in the app constructs this class (`lib/api/v2/mode.ts` only returns the fixture
- * transport, and a test fails if app code imports this module). It is exercised exclusively with an injected
- * fake `fetch`. Enabling it is a separate, reviewed step (docs/api-client.md, "Switching HTTP on").
+ * The authenticated cabinet uses an operation allowlist. Demo workspace requests use the fixture transport.
  *
  * Security properties (all covered by tests):
  * - same-origin only: the base path must be a path (`/api`), never an absolute or protocol-relative URL;
@@ -54,8 +53,9 @@ export interface WebApiV2ClientOptions {
    * the backend `GRAPH_TIMEOUT_SECONDS` (300 s); the edge route allows 330 s (README §3).
    */
   submitTimeoutMs?: number;
-  /** Called after any `401`. The app decides what "sign in again" means; the client only drops its CSRF token. */
+  /** Called after a protected operation returns 401. */
   onUnauthenticated?: () => void;
+  allowedOperations?: readonly OperationId[];
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -104,6 +104,8 @@ export class WebApiV2Client implements WebApiV2 {
   private readonly timeoutMs: number;
   private readonly submitTimeoutMs: number;
   private readonly onUnauthenticated?: () => void;
+  private readonly allowedOperations?: ReadonlySet<OperationId>;
+  private userId: number | null = null;
   /** Session-bound CSRF token. Memory only: never persisted, never logged. */
   private csrfToken: string | null = null;
   private csrfInFlight: Promise<string> | null = null;
@@ -115,9 +117,14 @@ export class WebApiV2Client implements WebApiV2 {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.submitTimeoutMs = options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS;
     this.onUnauthenticated = options.onUnauthenticated;
+    this.allowedOperations = options.allowedOperations && new Set(options.allowedOperations);
   }
 
   /* ---------------- auth ---------------- */
+
+  async startTelegramLoginChallenge(body: TelegramExchangeRequest, options?: CallOptions): Promise<TelegramBrowserChallenge> {
+    return (await this.call<TelegramBrowserChallenge>("startTelegramLoginChallenge", { body, signal: options?.signal })).data;
+  }
 
   async exchangeTelegramLoginToken(body: TelegramExchangeRequest, options?: CallOptions): Promise<AuthSession> {
     // No session yet, therefore no CSRF token; the server checks Origin / Sec-Fetch-Site instead.
@@ -128,6 +135,7 @@ export class WebApiV2Client implements WebApiV2 {
 
   async getCsrfToken(options?: CallOptions): Promise<CsrfToken> {
     const { data } = await this.call<CsrfToken>("getCsrfToken", { signal: options?.signal });
+    if (this.userId !== null) await this.getMe(options);
     this.csrfToken = data.csrf_token;
     return data;
   }
@@ -141,7 +149,14 @@ export class WebApiV2Client implements WebApiV2 {
   }
 
   async getMe(options?: CallOptions): Promise<Me> {
-    return (await this.call<Me>("getMe", { signal: options?.signal })).data;
+    const { data } = await this.call<Me>("getMe", { signal: options?.signal });
+    if (this.userId !== null && this.userId !== data.user.id) {
+      this.csrfToken = null;
+      this.onUnauthenticated?.();
+      throw new WebApiError({ kind: "http", operation: "getMe", status: 401, code: "unauthenticated" });
+    }
+    if (this.allowedOperations) this.userId = data.user.id;
+    return data;
   }
 
   /* ---------------- organizations, projects, brand ---------------- */
@@ -241,11 +256,15 @@ export class WebApiV2Client implements WebApiV2 {
   }
 
   private async call<T>(operation: OperationId, spec: CallSpec): Promise<CallResult<T>> {
+    if (this.allowedOperations && !this.allowedOperations.has(operation)) {
+      throw new Error("Web API operation is unavailable in the authenticated cabinet");
+    }
     const op = OPERATIONS[operation];
     const headers: Record<string, string> = { Accept: "application/json", ...spec.headers };
     if (spec.body !== undefined) headers["Content-Type"] = "application/json";
 
-    if (op.unsafe && operation !== "exchangeTelegramLoginToken") {
+    const preAuth = operation === "exchangeTelegramLoginToken" || operation === "startTelegramLoginChallenge";
+    if (op.unsafe && !preAuth) {
       if (operation === "logout") {
         // Logout is idempotent and valid without a session; use a token only when we have one.
         if (this.csrfToken) headers["X-CSRF-Token"] = this.csrfToken;
@@ -263,7 +282,7 @@ export class WebApiV2Client implements WebApiV2 {
         error.code === "csrf_failed" &&
         op.unsafe &&
         spec.csrfRetry !== false &&
-        operation !== "exchangeTelegramLoginToken"
+        !preAuth
       ) {
         // Rejected before anything was stored or admitted: fetch a fresh token and repeat ONCE.
         this.csrfToken = null;
@@ -337,7 +356,7 @@ export class WebApiV2Client implements WebApiV2 {
         return { status: response.status, data: parsed.value as T };
       }
 
-      if (response.status === 401) {
+      if (response.status === 401 && operation !== "startTelegramLoginChallenge" && operation !== "exchangeTelegramLoginToken") {
         this.csrfToken = null;
         this.onUnauthenticated?.();
       }

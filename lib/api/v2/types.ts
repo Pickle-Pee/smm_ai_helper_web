@@ -18,6 +18,7 @@ export type UserRef = Schemas["UserRef"];
 
 /* Identity */
 export type TelegramExchangeRequest = Schemas["TelegramExchangeRequest"];
+export type TelegramBrowserChallenge = Schemas["TelegramBrowserChallenge"];
 export type AuthSession = Schemas["AuthSession"];
 export type CsrfToken = Schemas["CsrfToken"];
 export type Me = Schemas["Me"];
